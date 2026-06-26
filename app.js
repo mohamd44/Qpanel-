@@ -1,12 +1,11 @@
 /* ============================================================
    Qpanell — محسّن قص ألواح الأخشاب (2D Guillotine)
-   الإصدار: 1.0.10 — عرض النصوص العربية بوضوح في PDF
+   الإصدار: 1.0.11 — بدون علامات قياس، تنزيل مباشر، نصوص عربية واضحة
    ============================================================ */
 
-const APP_VERSION = '1.0.10';
+const APP_VERSION = '1.0.11';
 const MIN_VERSION = '1.0.0';
-const VERSION_CHECK_URL = 'https://your-site.netlify.app/version.json'; // غيّر
-
+const VERSION_CHECK_URL = 'https://mohamd44.github.io/Qpanel-/version.json'; 
 const $ = (s) => document.querySelector(s);
 const palette = ['#dbe7f5','#fde9d2','#d8f0e0','#f5d8e6','#e7dcf5','#fdf0c8',
                  '#d2eef5','#f5dcd2','#e2f5d2','#f0d2f0','#d2d8f5','#f5f0d2'];
@@ -89,7 +88,7 @@ async function logoDataUrl(){
   return window._logoDU;
 }
 
-/* ---------------- جداول الإدخال (نفس الكود السابق) ---------------- */
+/* ---------------- جداول الإدخال ---------------- */
 function renderBandTable(){
   const tb = $('#bandTable tbody'); tb.innerHTML='';
   bandTypes.forEach(b=>{
@@ -299,6 +298,7 @@ function positionPieces(canvas, scale){
     canvas.appendChild(el);
   });
   markOverlaps(canvas);
+  // تم إزالة buildDimensionLines نهائياً
 }
 
 function displayEdges(p){ const e=p.edges; if(!p.rot) return {t:e.t,b:e.b,l:e.l,r:e.r}; return { t:e.l, b:e.r, l:e.b, r:e.t }; }
@@ -336,7 +336,7 @@ function magnetSnap(sheetIdx, piece, nx, ny, exceptIdx){ const ps=layout[sheetId
 function endDrag(e){ if(!drag) return; clearTimeout(drag.timer); document.removeEventListener('pointermove',onDrag); document.removeEventListener('pointerup',endDrag); document.removeEventListener('pointercancel',cancelDrag); liveCanvases.forEach(c=>c.classList.remove('drop-target')); if(!drag.lifted){ drag.el.classList.remove('armed'); drag=null; return; } const el=drag.el, piece=drag.piece; el.style.pointerEvents='none'; const target=document.elementFromPoint(drag.lastX,drag.lastY); el.style.pointerEvents=''; const tCanvas=target?target.closest('.sheet-canvas'):null; if(tCanvas){ const toSheet=+tCanvas.dataset.sheet; if(piece.l>settings.L+0.01 || piece.w>settings.W+0.01){ toast('⚠️ القطعة أكبر من اللوح — رُفض الإفلات'); } else { const cr=tCanvas.getBoundingClientRect(); const scale=tCanvas.clientWidth/settings.L; let nx=(drag.lastX-cr.left-drag.offX)/scale; let ny=(drag.lastY-cr.top-drag.offY)/scale; nx=Math.max(0,Math.min(nx, settings.L-piece.l)); ny=Math.max(0,Math.min(ny, settings.W-piece.w)); const except = (toSheet===drag.fromSheet) ? drag.pi : -1; let pos = magnetSnap(toSheet, piece, nx, ny, except); if(!pos) pos = findFreeSpot(toSheet, piece, nx, ny, except); if(!pos){ toast('⚠️ لا يوجد مكان كافٍ في هذا اللوح'); } else { piece.x=Math.round(pos.x*10)/10; piece.y=Math.round(pos.y*10)/10; if(toSheet!==drag.fromSheet){ layout[drag.fromSheet].pieces.splice(drag.pi,1); layout[toSheet].pieces.push(piece); layout=layout.filter(s=>s.pieces.length>0); } } } } el.classList.remove('lifting'); el.style.position=''; el.style.pointerEvents=''; drag=null; refreshLive(); }
 function refreshLive(){ const scrollY=window.scrollY; renderResults(); window.scrollTo(0,scrollY); }
 
-/* ---------------- رسم المخططات لملف PDF (جودة عالية) ---------------- */
+/* ---------------- رسم المخططات لملف PDF ---------------- */
 function _haloText(ctx,text,x,y,color,halo){ ctx.save(); ctx.lineJoin='round'; ctx.lineWidth=3; ctx.strokeStyle=halo||'#ffffff'; ctx.strokeText(text,x,y); ctx.fillStyle=color||'#0f2233'; ctx.fillText(text,x,y); ctx.restore(); }
 function _roundRect(ctx,x,y,w,h,r){ r=Math.max(0,Math.min(r,w/2,h/2)); ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 function _band(ctx,x,y,w,h){ ctx.save(); ctx.fillStyle='#0f766e'; _roundRect(ctx,x,y,w,h,Math.min(w,h)/2); ctx.fill(); ctx.restore(); }
