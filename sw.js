@@ -1,4 +1,4 @@
-const CACHE = 'qpanell-v1.0.10';
+const CACHE = 'qpanell-v1.0.11';
 const ASSETS = [
   './', './index.html', './styles.css', './app.js',
   './logo.jpeg', './icon-192.png', './icon-512.png',
