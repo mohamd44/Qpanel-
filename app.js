@@ -1,9 +1,9 @@
 /* ============================================================
-   Qpanell — محسّن قص ألواح الأخشاب (PDF فقط)
-   الإصدار: 1.0.18 — يعتمد على jsPDF مباشرة (بدون html2canvas)
+   Qpanell — محسّن قص ألواح الأخشاب
+   الإصدار: 1.0.19 — تصدير PDF بمخططات بصرية احترافية
    ============================================================ */
 
-const APP_VERSION = '1.0.18';
+const APP_VERSION = '1.0.19';
 const MIN_VERSION = '1.0.0';
 const VERSION_CHECK_URL = 'https://mohamd44.github.io/Qpanel-/version.json';
 
@@ -52,16 +52,21 @@ function reverseText(str) {
   return reversed.join('');
 }
 
-// تحميل jsPDF فقط (بدون html2canvas)
-let _pdfLoaded = false;
+/* ---------------- تحميل مكتبات الـ PDF ---------------- */
+let _pdfLibsLoaded = false;
 function ensurePdfLibs(){
   return new Promise((resolve, reject) => {
-    if (window.jspdf) { _pdfLoaded = true; resolve(); return; }
-    const s = document.createElement('script');
-    s.src = 'jspdf.umd.min.js';
-    s.onload = () => { _pdfLoaded = true; resolve(); };
-    s.onerror = () => reject(new Error('فشل تحميل jsPDF'));
-    document.head.appendChild(s);
+    if (window.jspdf && window.html2canvas) { _pdfLibsLoaded = true; resolve(); return; }
+    if (_pdfLibsLoaded) { resolve(); return; }
+    const scripts = ['jspdf.umd.min.js', 'html2canvas.min.js'];
+    let loaded = 0;
+    scripts.forEach(src => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = () => { loaded++; if (loaded === scripts.length) { _pdfLibsLoaded = true; resolve(); } };
+      s.onerror = () => reject(new Error('فشل تحميل '+src));
+      document.head.appendChild(s);
+    });
   });
 }
 
@@ -348,186 +353,253 @@ function endDrag(e){ if(!drag) return; clearTimeout(drag.timer); document.remove
 function refreshLive(){ const scrollY=window.scrollY; renderResults(); window.scrollTo(0,scrollY); }
 
 /* ============================================================
-   تصدير PDF — باستخدام jsPDF مباشرة (بدون html2canvas)
+   📄 تصدير PDF — مع مخططات بصرية باستخدام HTML + html2canvas
    ============================================================ */
-async function doExportPDF(opts){
-  opts=opts||{summary:true,sheetData:true,cutOrder:true,banding:true,costs:true};
-  if(!layout||!layout.length){ toast('قم بالتحسين أولاً'); return; }
 
-  toast('جارٍ إنشاء ملف PDF…');
-  await ensurePdfLibs();
-  const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF('p', 'mm', 'a4');
-  const pw = 210, ph = 297, margin = 10;
-  const pageWidth = pw - margin*2;
-  const pageHeight = ph - margin*2;
-
-  // إحصائيات عامة
-  const t = totals();
-  const totalSheets = t.sheets;
-  const totalUsed = Math.round(t.used);
-  const totalWaste = Math.round(t.area - t.used);
-  const totalUtil = t.util;
-  const totalWastePct = t.waste;
-  const totalCuts = t.cuts;
-  const totalCutLen = Math.round(t.cutLen * 10) / 10;
-  const kerf = settings.kerf;
-
-  // مجموعات الألواح
-  const groups = groupSheets();
-  const unplacedCount = _unplacedItems ? _unplacedItems.length : 0;
-  let wastedPerGroup = new Array(groups.length).fill(0);
-  if (unplacedCount > 0 && groups.length > 0) {
-    const base = Math.floor(unplacedCount / groups.length);
-    const remainder = unplacedCount % groups.length;
-    for (let i = 0; i < groups.length; i++) {
-      wastedPerGroup[i] = base + (i < remainder ? 1 : 0);
-    }
-  }
-
-  // دالة لرسم لوح واحد مباشرة على الـ PDF
-  function drawSheetOnPDF(pdf, sheet, count, idx, stats) {
-    const usedArea = Math.round(stats.used);
-    const wasteArea = Math.round(stats.waste);
-    const utilPct = Math.round(stats.util);
-    const wastePct = Math.round(stats.waste);
-    const cuts = stats.cuts;
-    const cutLen = Math.round(stats.cutLen);
-    const panels = stats.count;
-    const wastedPanels = wastedPerGroup[idx] || 0;
-
-    // رسم اللوح الأصلي (مستطيل)
-    const scale = 0.3; // مقياس الرسم ليتناسب مع الصفحة
-    const sheetW = settings.L * scale;
-    const sheetH = settings.W * scale;
-    const x0 = margin;
-    const y0 = margin + 10;
-
-    // رسم حدود اللوح
-    pdf.setDrawColor(0);
-    pdf.setLineWidth(0.2);
-    pdf.rect(x0, y0, sheetW, sheetH);
-
-    // رسم القطع داخل اللوح
-    pdf.setFillColor(240, 184, 184);
-    sheet.pieces.forEach(p => {
-      const px = x0 + p.x * scale;
-      const py = y0 + p.y * scale;
-      const pw = p.l * scale;
-      const ph = p.w * scale;
-      pdf.setFillColor(240, 184, 184);
-      pdf.rect(px, py, pw, ph, 'F');
-      pdf.setDrawColor(0);
-      pdf.rect(px, py, pw, ph);
-      // كتابة الأبعاد في وسط القطعة (بعد عكس النص)
-      const label = `${p.l}×${p.w}`;
-      pdf.setFontSize(6);
-      pdf.setTextColor(0, 0, 0);
-      pdf.text(reverseText(label), px + pw/2, py + ph/2, { align: 'center', baseline: 'middle' });
+// دالة لإنشاء HTML يمثل لوحاً واحداً مع القطع
+function generateSheetHTML(sheet, count, idx) {
+    const st = sheetStats(sheet);
+    const usedArea = Math.round(st.used);
+    const wasteArea = Math.round(st.waste);
+    const utilPct = Math.round(st.util);
+    const wastePct = Math.round(st.waste);
+    const cuts = st.cuts;
+    const cutLen = Math.round(sheetCutLength(sheet) * 10) / 10;
+    const panels = st.count;
+    
+    // حساب المناطق المهدورة
+    const wasteRects = recomputeWaste(sheet);
+    
+    // حساب مقياس الرسم
+    const maxDim = Math.max(settings.L, settings.W);
+    const scale = 300 / maxDim; // لجعل اللوح مناسباً للصفحة
+    
+    // إنشاء عنصر div للمخطط
+    const container = document.createElement('div');
+    container.style.cssText = `
+        position: relative;
+        width: ${settings.L * scale}px;
+        height: ${settings.W * scale}px;
+        background: white;
+        border: 1px solid black;
+        margin: 10px auto;
+        direction: ltr;
+    `;
+    
+    // رسم المناطق المهدورة
+    wasteRects.forEach(w => {
+        const div = document.createElement('div');
+        div.style.cssText = `
+            position: absolute;
+            left: ${w.x * scale}px;
+            top: ${w.y * scale}px;
+            width: ${w.w * scale}px;
+            height: ${w.h * scale}px;
+            background: #f5f0dc;
+            opacity: 0.6;
+            border: 1px dashed #999;
+            pointer-events: none;
+        `;
+        container.appendChild(div);
     });
-
-    // كتابة البيانات بجانب اللوح
-    const infoX = x0 + sheetW + 10;
-    let y = y0;
-    pdf.setFontSize(9);
-    pdf.setTextColor(0, 0, 0);
-    pdf.text(reverseText(`Stock sheet ${settings.L}×${settings.W} Qty ${count}`), infoX, y);
-    y += 6;
-    pdf.text(reverseText(`Used area ${usedArea} ${utilPct}%`), infoX, y);
-    y += 5;
-    pdf.text(reverseText(`Wasted area ${wasteArea} ${wastePct}%`), infoX, y);
-    y += 5;
-    pdf.text(reverseText(`Cuts ${cuts}`), infoX, y);
-    y += 5;
-    pdf.text(reverseText(`Cut length ${cutLen}`), infoX, y);
-    y += 5;
-    pdf.text(reverseText(`Panels ${panels}`), infoX, y);
-    y += 5;
-    pdf.text(reverseText(`Wasted panels ${wastedPanels}`), infoX, y);
-    y += 7;
-
-    // Panel Qty
-    const panelMap = {};
-    sheet.pieces.forEach(p => {
-      const key = `${p.origL}×${p.origW}`;
-      panelMap[key] = (panelMap[key] || 0) + 1;
-    });
-    pdf.text(reverseText('Panel Qty'), infoX, y);
-    y += 5;
-    Object.entries(panelMap).forEach(([size, qty]) => {
-      pdf.text(reverseText(`${size} ${qty}`), infoX, y);
-      y += 4;
-    });
-
-    y += 5;
-    pdf.text(reverseText('#  Panel  Cut  Result'), infoX, y);
-    y += 5;
+    
+    // رسم القطع
     sheet.pieces.forEach((p, i) => {
-      const num = i+1;
-      const displayL = p.rot ? p.w : p.l;
-      const displayW = p.rot ? p.l : p.w;
-      const xCoord = Math.round(p.x);
-      const yCoord = Math.round(p.y);
-      let resultStr = '';
-      if (xCoord > 0 && yCoord === 0) resultStr = `x=${xCoord}`;
-      else if (yCoord > 0 && xCoord === 0) resultStr = `y=${yCoord}`;
-      else if (xCoord > 0 && yCoord > 0) resultStr = `x=${xCoord} y=${yCoord}`;
-      const line = `${num}  ${displayL}×${displayW}  ${resultStr}`;
-      pdf.text(reverseText(line), infoX, y);
-      y += 4;
+        const div = document.createElement('div');
+        const color = palette[i % palette.length];
+        div.style.cssText = `
+            position: absolute;
+            left: ${p.x * scale}px;
+            top: ${p.y * scale}px;
+            width: ${p.l * scale}px;
+            height: ${p.w * scale}px;
+            background: ${color};
+            opacity: 0.8;
+            border: 1px solid black;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: ${Math.min(p.l * scale, p.w * scale) < 30 ? '6px' : '10px'};
+            font-weight: bold;
+            color: #333;
+            pointer-events: none;
+            font-family: Arial, sans-serif;
+        `;
+        div.textContent = `${p.origL}×${p.origW}`;
+        container.appendChild(div);
     });
+    
+    // أبعاد اللوح الكلية
+    const dimW = document.createElement('div');
+    dimW.style.cssText = `
+        position: absolute;
+        bottom: -18px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 10px;
+        color: #888;
+        font-family: Arial, sans-serif;
+    `;
+    dimW.textContent = settings.L;
+    container.appendChild(dimW);
+    
+    const dimH = document.createElement('div');
+    dimH.style.cssText = `
+        position: absolute;
+        right: -18px;
+        top: 50%;
+        transform: translateY(-50%) rotate(-90deg);
+        font-size: 10px;
+        color: #888;
+        font-family: Arial, sans-serif;
+    `;
+    dimH.textContent = settings.W;
+    container.appendChild(dimH);
+    
+    // إضافة معلومات النص (Info Box) إلى جانب المخطط
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = `
+        display: flex;
+        gap: 20px;
+        align-items: flex-start;
+        padding: 10px;
+        background: white;
+        direction: ltr;
+        font-family: 'Courier New', monospace;
+        font-size: 10px;
+        line-height: 1.6;
+    `;
+    
+    const infoBox = document.createElement('div');
+    infoBox.style.cssText = `flex: 1; min-width: 200px;`;
+    infoBox.innerHTML = `
+        <div><b>Stock sheet ${settings.L}×${settings.W} Qty ${count}</b></div>
+        <div>Used area ${usedArea} ${utilPct}%</div>
+        <div>Wasted area ${wasteArea} ${wastePct}%</div>
+        <div>Cuts ${cuts}</div>
+        <div>Cut length ${cutLen}</div>
+        <div>Panels ${panels}</div>
+        <div>Wasted panels ${_unplacedItems ? _unplacedItems.length : 0}</div>
+        <div style="margin-top:4px;"><b>Panel Qty</b></div>
+        ${Object.entries(st.pieces.reduce((acc, p) => {
+            const key = `${p.origL}×${p.origW}`;
+            acc[key] = (acc[key] || 0) + 1;
+            return acc;
+        }, {})).map(([size, qty]) => `<div>${size} ${qty}</div>`).join('')}
+        <div style="margin-top:6px;"><b>#  Panel  Cut  Result</b></div>
+        ${sheet.pieces.map((p, i) => {
+            const num = i + 1;
+            const displayL = p.rot ? p.w : p.l;
+            const displayW = p.rot ? p.l : p.w;
+            let resultStr = '';
+            if (p.x > 0 && p.y === 0) resultStr = `x=${Math.round(p.x)}`;
+            else if (p.y > 0 && p.x === 0) resultStr = `y=${Math.round(p.y)}`;
+            else if (p.x > 0 && p.y > 0) resultStr = `x=${Math.round(p.x)} y=${Math.round(p.y)}`;
+            return `<div>${num}  ${displayL}×${displayW}  ${resultStr}</div>`;
+        }).join('')}
+        ${count > 1 ? `<div style="text-align:center; margin-top:8px; font-weight:bold;">x${count}</div>` : ''}
+    `;
+    
+    wrapper.appendChild(container);
+    wrapper.appendChild(infoBox);
+    
+    return wrapper;
+}
 
-    // علامة التكرار
-    if (count > 1) {
-      pdf.setFontSize(8);
-      pdf.setTextColor(100, 100, 100);
-      pdf.text(reverseText(`x${count}`), pw - margin - 10, ph - margin - 10);
+async function doExportPDF(opts){
+    opts = opts || {summary:true, sheetData:true, cutOrder:true, banding:true, costs:true};
+    if(!layout || !layout.length){ toast('قم بالتحسين أولاً'); return; }
+
+    toast('جارٍ إنشاء ملف PDF…');
+    await ensurePdfLibs();
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const pw = 210, ph = 297, margin = 10;
+    const pageWidth = pw - margin*2;
+
+    // مجموعات الألواح
+    const groups = groupSheets();
+
+    // صفحة الملخص (نصية)
+    const t = totals();
+    const totalSheets = t.sheets;
+    const totalUsed = Math.round(t.used);
+    const totalWaste = Math.round(t.area - t.used);
+    const totalUtil = t.util;
+    const totalWastePct = t.waste;
+    const totalCuts = t.cuts;
+    const totalCutLen = Math.round(t.cutLen * 10) / 10;
+    const kerf = settings.kerf;
+
+    // دالة لإنشاء HTML لكل لوح
+    async function captureSheetHTML(sheet, count, idx) {
+        const element = generateSheetHTML(sheet, count, idx);
+        // إضافة العنصر إلى DOM مؤقتاً
+        const tempDiv = document.createElement('div');
+        tempDiv.style.cssText = 'position: fixed; left: -9999px; top: 0; width: 800px; background: white; padding: 20px;';
+        tempDiv.appendChild(element);
+        document.body.appendChild(tempDiv);
+        
+        try {
+            const canvas = await window.html2canvas(tempDiv, {
+                scale: 2.5,
+                backgroundColor: '#ffffff',
+                useCORS: true,
+                logging: false,
+                allowTaint: true
+            });
+            const imgData = canvas.toDataURL('image/jpeg', 0.92);
+            return imgData;
+        } finally {
+            document.body.removeChild(tempDiv);
+        }
     }
-    // رقم الصفحة
-    pdf.setFontSize(8);
-    pdf.setTextColor(200, 0, 0);
-    pdf.text(reverseText(`${pdf.internal.getNumberOfPages()}`), pw/2, ph - margin - 10, { align: 'center' });
-  }
 
-  // صفحة الملخص
-  pdf.addPage();
-  let y = margin + 20;
-  pdf.setFontSize(12);
-  pdf.setTextColor(0, 0, 0);
-  pdf.text(reverseText('ملخص المشروع'), margin, y);
-  y += 10;
-  pdf.setFontSize(10);
-  const summaryLines = [
-    `Used stock sheets ${totalSheets}`,
-    `Total used area ${totalUsed} ${Math.round(totalUtil)}%`,
-    `Total wasted area ${totalWaste} ${Math.round(totalWastePct)}%`,
-    `Total cuts ${totalCuts}`,
-    `Total cut length ${totalCutLen}`,
-    `Cut / blade / kerf thickness ${kerf}`
-  ];
-  summaryLines.forEach(line => {
-    pdf.text(reverseText(line), margin, y);
-    y += 6;
-  });
+    // صفحة الملخص
+    const summaryDiv = document.createElement('div');
+    summaryDiv.style.cssText = 'direction:ltr; padding:10px; background:#fff; font-family:"Courier New",monospace; font-size:10px; line-height:1.5;';
+    summaryDiv.innerHTML = `
+        <div>Used stock sheets ${totalSheets}</div>
+        <div>Total used area ${totalUsed} ${Math.round(totalUtil)}%</div>
+        <div>Total wasted area ${totalWaste} ${Math.round(totalWastePct)}%</div>
+        <div>Total cuts ${totalCuts}</div>
+        <div>Total cut length ${totalCutLen}</div>
+        <div>Cut / blade / kerf thickness ${kerf}</div>
+    `;
+    document.body.appendChild(summaryDiv);
+    try {
+        const canvasSum = await window.html2canvas(summaryDiv, { scale: 2, backgroundColor: '#ffffff' });
+        const imgSum = canvasSum.toDataURL('image/jpeg', 0.92);
+        const wSum = pageWidth;
+        const hSum = canvasSum.height * wSum / canvasSum.width;
+        pdf.addPage();
+        pdf.addImage(imgSum, 'JPEG', margin, margin, wSum, hSum);
+    } catch(e) { toast('تعذّر إنشاء صفحة الملخص'); }
+    document.body.removeChild(summaryDiv);
 
-  // صفحات الألواح
-  groups.forEach((g, idx) => {
-    const st = sheetStats(g.sheet);
-    const cutLen = sheetCutLength(g.sheet);
-    const stats = { ...st, cutLen };
-    pdf.addPage();
-    drawSheetOnPDF(pdf, g.sheet, g.count, idx, stats);
-  });
+    // صفحات الألواح
+    for (let i = 0; i < groups.length; i++) {
+        const g = groups[i];
+        try {
+            const imgData = await captureSheetHTML(g.sheet, g.count, i);
+            const w = pageWidth;
+            const h = 0; // سيتم حسابه تلقائياً من الصورة
+            pdf.addPage();
+            pdf.addImage(imgData, 'JPEG', margin, margin, w, 0);
+        } catch (e) {
+            toast('تعذّر إنشاء صفحة اللوح ' + (i+1));
+        }
+    }
 
-  // حفظ الملف
-  const base = (opts.name || settings.planName || 'IQ-Panel-مخطط-القص').replace(/[\\/:*?"<>|]/g,'-') || 'IQ-Panel';
-  const fname = base + '.pdf';
-  try {
-    pdf.save(fname);
-    toast('✓ تم حفظ الملف');
-  } catch (e) {
-    toast('❌ فشل الحفظ: ' + e.message);
-  }
+    // حفظ الملف
+    const base = (opts.name || settings.planName || 'IQ-Panel-مخطط-القص').replace(/[\\/:*?"<>|]/g,'-') || 'IQ-Panel';
+    const fname = base + '.pdf';
+    try {
+        pdf.save(fname);
+        toast('✓ تم حفظ الملف');
+    } catch (e) {
+        toast('❌ فشل الحفظ: ' + e.message);
+    }
 }
 
 function openPdfOptions(){
