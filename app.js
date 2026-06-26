@@ -1,11 +1,12 @@
 /* ============================================================
    Qpanell — محسّن قص ألواح الأخشاب (2D Guillotine)
-   الإصدار: 1.0.11 — بدون علامات قياس، تنزيل مباشر، نصوص عربية واضحة
+   الإصدار: 1.0.12 — إصلاح ظهور المخططات في ملف PDF
    ============================================================ */
 
-const APP_VERSION = '1.0.11';
+const APP_VERSION = '1.0.12';
 const MIN_VERSION = '1.0.0';
-const VERSION_CHECK_URL = 'https://mohamd44.github.io/Qpanel-/version.json'; 
+const VERSION_CHECK_URL = 'https://mohamd44.github.io/Qpanel-/version.json';
+
 const $ = (s) => document.querySelector(s);
 const palette = ['#dbe7f5','#fde9d2','#d8f0e0','#f5d8e6','#e7dcf5','#fdf0c8',
                  '#d2eef5','#f5dcd2','#e2f5d2','#f0d2f0','#d2d8f5','#f5f0d2'];
@@ -298,7 +299,6 @@ function positionPieces(canvas, scale){
     canvas.appendChild(el);
   });
   markOverlaps(canvas);
-  // تم إزالة buildDimensionLines نهائياً
 }
 
 function displayEdges(p){ const e=p.edges; if(!p.rot) return {t:e.t,b:e.b,l:e.l,r:e.r}; return { t:e.l, b:e.r, l:e.b, r:e.t }; }
@@ -358,7 +358,7 @@ function drawSheetToCanvasEl(sheet, idx, scale){
   return cv;
 }
 
-/* ---------------- تصدير PDF (عرض النصوص العربية بوضوح) ---------------- */
+/* ---------------- تصدير PDF (مخططات واضحة مع بيانات عربية) ---------------- */
 async function doExportPDF(opts){
   opts=opts||{summary:true,sheetData:true,cutOrder:true,banding:true,costs:true};
   if(!layout||!layout.length){ toast('قم بالتحسين أولاً'); return; }
@@ -418,7 +418,7 @@ async function doExportPDF(opts){
     rep.innerHTML = '';
   }
 
-  // ===== 2. صفحات الألواح (تُحوّل إلى HTML ثم إلى صورة لضمان ظهور العربية) =====
+  // ===== 2. صفحات الألواح (مخطط + بيانات) =====
   const groups = groupSheets();
   for (let g of groups) {
     const sh = g.sheet;
@@ -431,11 +431,11 @@ async function doExportPDF(opts){
 
     // بناء صفحة HTML تحتوي على المخطط والبيانات بالعربية
     const pageDiv = document.createElement('div');
-    pageDiv.style.cssText = 'width:760px; padding:20px; background:#fff; font-family: "Cairo", Arial, sans-serif; direction: rtl;';
+    pageDiv.style.cssText = 'width:760px; padding:20px; background:#fff; font-family: "Cairo", Arial, sans-serif; direction: rtl; box-sizing:border-box;';
     pageDiv.innerHTML = `
       <div style="display:flex; gap:20px; align-items:flex-start;">
         <div style="flex: 0 0 65%;">
-          <img src="${imgData}" style="width:100%; height:auto; border:1px solid #ccc;">
+          <img src="${imgData}" style="width:100%; height:auto; border:1px solid #ccc; display:block;">
         </div>
         <div style="flex:1; font-size:13px; line-height:1.8;">
           <h3 style="color:#8a5e26; margin:0 0 10px 0;">بيانات اللوح ${idx+1}</h3>
@@ -456,10 +456,11 @@ async function doExportPDF(opts){
     // تحويل الصفحة إلى صورة عبر html2canvas
     try {
       const canvasPage = await window.html2canvas(pageDiv, {
-        scale: 2,
+        scale: 2.5,
         backgroundColor: '#ffffff',
         useCORS: true,
-        logging: false
+        logging: false,
+        allowTaint: true
       });
       const imgPageData = canvasPage.toDataURL('image/jpeg', 0.95);
       const w = pageWidth;
@@ -468,6 +469,7 @@ async function doExportPDF(opts){
       pdf.addImage(imgPageData, 'JPEG', margin, margin, w, h);
     } catch (e) {
       toast('تعذّر إنشاء صفحة اللوح ' + (idx+1));
+      console.error(e);
     }
   }
 
