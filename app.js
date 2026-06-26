@@ -1,9 +1,9 @@
 /* ============================================================
    Qpanell — محسّن قص ألواح الأخشاب (2D Guillotine)
-   الإصدار: 1.0.15 — تقرير PDF مطابق للنموذج المرفق
+   الإصدار: 1.0.16 — PDF يعمل في المتصفح (بدون خادم)
    ============================================================ */
 
-const APP_VERSION = '1.0.15';
+const APP_VERSION = '1.0.16';
 const MIN_VERSION = '1.0.0';
 const VERSION_CHECK_URL = 'https://mohamd44.github.io/Qpanel-/version.json';
 
@@ -25,7 +25,7 @@ let settings = null;
 let uid = 100;
 const nid = () => 'x' + (++uid);
 
-// متغير عام لتخزين القطع غير الموضوعة
+// متغير لتخزين القطع غير الموضوعة
 let _unplacedItems = [];
 
 function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.remove('hidden');
@@ -223,10 +223,7 @@ function optimize(){
     if(!done) unplaced.push(it);
   }
   layout = sheets.map(s=>({ cuts:s.cuts, pieces:s.placed.map(p=>({ id:nid(), x:p.x, y:p.y, l:p.l, w:p.w, rot:p.rot, name:p.src.name, bandId:p.src.bandId, edges:{...p.src.edges}, origL:p.origL, origW:p.origW })) }));
-  
-  // تخزين القطع غير الموضوعة عالمياً للتقرير
   _unplacedItems = unplaced;
-  
   if(unplaced.length) toast(`⚠️ ${unplaced.length} قطعة أكبر من اللوح ولم تُوضع`);
   else if(sheets.length>qty) toast(`⚠️ تحتاج ${sheets.length} لوحاً وهو أكثر من المتاح (${qty})`);
   else toast(`✓ تم: ${sheets.length} لوح، ${items.length} قطعة`);
@@ -366,7 +363,7 @@ function drawSheetToCanvasEl(sheet, idx, scale){
 }
 
 /* ============================================================
-   تصدير PDF — تنسيق مطابق للملف النموذجي
+   تصدير PDF — يعمل مباشرة في المتصفح (بدون خادم)
    ============================================================ */
 async function doExportPDF(opts){
   opts=opts||{summary:true,sheetData:true,cutOrder:true,banding:true,costs:true};
@@ -394,7 +391,7 @@ async function doExportPDF(opts){
   const groups = groupSheets();
   const unplacedCount = _unplacedItems ? _unplacedItems.length : 0;
 
-  // توزيع القطع غير الموضوعة على الألواح
+  // توزيع القطع غير الموضوعة
   let wastedPerGroup = new Array(groups.length).fill(0);
   if (unplacedCount > 0 && groups.length > 0) {
     const base = Math.floor(unplacedCount / groups.length);
@@ -404,8 +401,30 @@ async function doExportPDF(opts){
     }
   }
 
-  // دالة لإنشاء HTML لكل مجموعة
-  function buildGroupHTML(g, idx) {
+  // ===== 1. صفحة الملخص =====
+  const summaryDiv = document.createElement('div');
+  summaryDiv.style.cssText = 'direction: ltr; padding: 15px; background: #fff; font-family: "Cairo", "Courier New", monospace; font-size: 11px; line-height: 1.6;';
+  summaryDiv.innerHTML = `
+    <div>Used stock sheets ${totalSheets}</div>
+    <div>Total used area ${totalUsed} ${Math.round(totalUtil)}%</div>
+    <div>Total wasted area ${totalWaste} ${Math.round(totalWastePct)}%</div>
+    <div>Total cuts ${totalCuts}</div>
+    <div>Total cut length ${totalCutLen}</div>
+    <div>Cut / blade / kerf thickness ${kerf}</div>
+  `;
+
+  try {
+    const canvasSum = await window.html2canvas(summaryDiv, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+    const imgSum = canvasSum.toDataURL('image/jpeg', 0.95);
+    const wSum = pageWidth;
+    const hSum = canvasSum.height * wSum / canvasSum.width;
+    pdf.addPage();
+    pdf.addImage(imgSum, 'JPEG', margin, margin, wSum, hSum);
+  } catch(e) { toast('تعذّر إنشاء صفحة الملخص'); }
+
+  // ===== 2. صفحات الألواح =====
+  for (let gIdx = 0; gIdx < groups.length; gIdx++) {
+    const g = groups[gIdx];
     const sh = g.sheet;
     const count = g.count;
     const st = sheetStats(sh);
@@ -416,12 +435,12 @@ async function doExportPDF(opts){
     const cuts = st.cuts;
     const cutLen = Math.round(sheetCutLength(sh) * 10) / 10;
     const panels = st.count;
-    const wastedPanels = wastedPerGroup[idx] || 0;
+    const wastedPanels = wastedPerGroup[gIdx] || 0;
 
-    // تجميع القطع حسب الحجم لعرض Panel Qty
+    // تجميع القطع حسب الحجم
     const panelMap = {};
     sh.pieces.forEach(p => {
-      const key = `${p.origL}x${p.origW}`;
+      const key = `${p.origL}×${p.origW}`;
       panelMap[key] = (panelMap[key] || 0) + 1;
     });
     const panelQtyStr = Object.entries(panelMap)
@@ -434,84 +453,49 @@ async function doExportPDF(opts){
       const num = i + 1;
       const l = p.l;
       const w = p.w;
-      // إذا كان الدوران مفعلاً، نتبادل الأبعاد في العرض
       const displayL = p.rot ? w : l;
       const displayW = p.rot ? l : w;
       const xCoord = Math.round(p.x);
       const yCoord = Math.round(p.y);
-      // بناء سلسلة النتيجة: إما x=... أو y=... حسب الإحداثيات الأكبر (محاكاة للنموذج)
       let resultStr = '';
       if (xCoord > 0 && yCoord === 0) resultStr = `x=${xCoord}`;
       else if (yCoord > 0 && xCoord === 0) resultStr = `y=${yCoord}`;
       else if (xCoord > 0 && yCoord > 0) resultStr = `x=${xCoord} y=${yCoord}`;
-      else resultStr = '';
       rows += `<tr><td>${num}</td><td>${displayL}×${displayW}</td><td>${resultStr}</td></tr>`;
     });
 
-    // علامة التكرار أسفل الصفحة (مثل x5)
     const repeatMark = count > 1 ? `<div style="text-align:center; margin-top:10px; font-weight:bold;">x${count}</div>` : '';
 
-    return `
-      <div style="font-family: 'Cairo', 'Courier New', monospace; direction: ltr; padding: 15px; width: 100%; box-sizing:border-box; background:#fff; font-size:11px; line-height:1.6;">
-        <div>Stock sheet ${settings.L}×${settings.W} Qty ${count}</div>
-        <div>Used area ${usedArea} ${utilPct}%</div>
-        <div>Wasted area ${wasteArea} ${wastePct}%</div>
-        <div>Cuts ${cuts}</div>
-        <div>Cut length ${cutLen}</div>
-        <div>Panels ${panels}</div>
-        <div>Wasted panels ${wastedPanels}</div>
-        <div>Panel Qty ${panelQtyStr}</div>
-        <div style="margin-top:6px;">
-          <table style="width:100%; border-collapse:collapse; font-size:11px;">
-            <tr style="border-bottom:1px solid #000;"><th style="text-align:left;padding:2px 0;">#</th><th style="text-align:left;padding:2px 0;">Panel</th><th style="text-align:left;padding:2px 0;">Cut Result</th></tr>
-            ${rows}
-          </table>
-        </div>
-        ${repeatMark}
+    // بناء صفحة HTML لكل لوح
+    const sheetDiv = document.createElement('div');
+    sheetDiv.style.cssText = 'direction: ltr; padding: 15px; background: #fff; font-family: "Cairo", "Courier New", monospace; font-size: 11px; line-height: 1.6; width: 100%; box-sizing: border-box;';
+    sheetDiv.innerHTML = `
+      <div>Stock sheet ${settings.L}×${settings.W} Qty ${count}</div>
+      <div>Used area ${usedArea} ${utilPct}%</div>
+      <div>Wasted area ${wasteArea} ${wastePct}%</div>
+      <div>Cuts ${cuts}</div>
+      <div>Cut length ${cutLen}</div>
+      <div>Panels ${panels}</div>
+      <div>Wasted panels ${wastedPanels}</div>
+      <div>Panel Qty ${panelQtyStr}</div>
+      <div style="margin-top:6px;">
+        <table style="width:100%; border-collapse:collapse; font-size:11px;">
+          <tr style="border-bottom:1px solid #000;"><th style="text-align:left;padding:2px 0;">#</th><th style="text-align:left;padding:2px 0;">Panel</th><th style="text-align:left;padding:2px 0;">Cut Result</th></tr>
+          ${rows}
+        </table>
       </div>
+      ${repeatMark}
     `;
-  }
-
-  // ===== 1. صفحة الملخص =====
-  const summaryHTML = `
-    <div style="font-family: 'Cairo', 'Courier New', monospace; direction: ltr; padding: 15px; width: 100%; box-sizing:border-box; background:#fff; font-size:11px; line-height:1.6;">
-      <div>Used stock sheets ${totalSheets}</div>
-      <div>Total used area ${totalUsed} ${Math.round(totalUtil)}%</div>
-      <div>Total wasted area ${totalWaste} ${Math.round(totalWastePct)}%</div>
-      <div>Total cuts ${totalCuts}</div>
-      <div>Total cut length ${totalCutLen}</div>
-      <div>Cut / blade / kerf thickness ${kerf}</div>
-    </div>
-  `;
-
-  // إضافة صفحة الملخص
-  const summaryDiv = document.createElement('div');
-  summaryDiv.innerHTML = summaryHTML;
-  try {
-    const canvasSum = await window.html2canvas(summaryDiv, { scale: 2, backgroundColor: '#ffffff' });
-    const imgSum = canvasSum.toDataURL('image/jpeg', 0.95);
-    const wSum = pageWidth;
-    const hSum = canvasSum.height * wSum / canvasSum.width;
-    pdf.addPage();
-    pdf.addImage(imgSum, 'JPEG', margin, margin, wSum, hSum);
-  } catch(e) { toast('تعذّر إنشاء صفحة الملخص'); }
-
-  // ===== 2. صفحات الألواح =====
-  for (let i = 0; i < groups.length; i++) {
-    const g = groups[i];
-    const htmlContent = buildGroupHTML(g, i);
-    const div = document.createElement('div');
-    div.innerHTML = htmlContent;
 
     try {
-      const canvas = await window.html2canvas(div, { scale: 2.5, backgroundColor: '#ffffff', useCORS: true, logging: false, allowTaint: true });
+      const canvas = await window.html2canvas(sheetDiv, { scale: 2.5, backgroundColor: '#ffffff', useCORS: true, logging: false, allowTaint: true });
       const imgData = canvas.toDataURL('image/jpeg', 0.95);
       const w = pageWidth;
       const h = canvas.height * w / canvas.width;
       pdf.addPage();
       pdf.addImage(imgData, 'JPEG', margin, margin, w, h);
     } catch (e) {
-      toast('تعذّر إنشاء صفحة اللوح ' + (i+1));
+      toast('تعذّر إنشاء صفحة اللوح ' + (gIdx+1));
       console.error(e);
     }
   }
