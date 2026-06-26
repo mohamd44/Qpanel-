@@ -1,9 +1,9 @@
 /* ============================================================
    Qpanell — محسّن قص ألواح الأخشاب (2D Guillotine)
-   الإصدار: 1.0.12 — إصلاح ظهور المخططات في ملف PDF
+   الإصدار: 1.0.13 — كتابة البيانات العربية مباشرة في PDF
    ============================================================ */
 
-const APP_VERSION = '1.0.12';
+const APP_VERSION = '1.0.13';
 const MIN_VERSION = '1.0.0';
 const VERSION_CHECK_URL = 'https://mohamd44.github.io/Qpanel-/version.json';
 
@@ -45,6 +45,30 @@ function ensurePdfLibs(){
       document.head.appendChild(s);
     });
   });
+}
+
+// دالة بسيطة لعكس النص العربي (لـ jsPDF)
+function reverseArabic(str) {
+  if (!str) return '';
+  // عكس النص مع الحفاظ على الأرقام
+  const chars = str.split('');
+  const reversed = [];
+  let i = chars.length - 1;
+  while (i >= 0) {
+    // تجميع الأرقام معاً (للحفاظ على ترتيبها)
+    if (chars[i] >= '0' && chars[i] <= '9') {
+      let num = '';
+      while (i >= 0 && chars[i] >= '0' && chars[i] <= '9') {
+        num = chars[i] + num;
+        i--;
+      }
+      reversed.push(num);
+    } else {
+      reversed.push(chars[i]);
+      i--;
+    }
+  }
+  return reversed.join('');
 }
 
 /* ---------------- حفظ واستعادة الحالة ---------------- */
@@ -233,7 +257,7 @@ function sheetStats(sheet){ const area=settings.L*settings.W; let used=0,m=0,cos
 function sheetCutLength(sheet){ const xs=new Set(), ys=new Set(); sheet.pieces.forEach(p=>{ const x2=Math.round((p.x+p.l)*10)/10, y2=Math.round((p.y+p.w)*10)/10; if(x2<settings.L-0.1) xs.add(x2); if(y2<settings.W-0.1) ys.add(y2); }); return xs.size*settings.W + ys.size*settings.L; }
 function totals(){ let used=0,m=0,cost=0,cuts=0,count=0,cutLen=0; const byType={}; layout.forEach(sh=>sh.pieces.forEach(p=>{ used+=p.l*p.w; const b=pieceBanding(p); m+=b.m; cost+=b.cost; const t=bandById(p.bandId).name; byType[t]=byType[t]||{m:0,cost:0}; byType[t].m+=b.m; byType[t].cost+=b.cost; })); layout.forEach(sh=>{cuts+=recomputeCuts(sh);count+=sh.pieces.length;cutLen+=sheetCutLength(sh);}); const area=layout.length*settings.L*settings.W; return { sheets:layout.length, area, used, util:area?used/area*100:0, waste:area?(1-used/area)*100:0, meters:m, cost, cuts, count, cutLen, byType }; }
 
-/* ---------------- عرض النتائج (بدون علامات قياس خارجية) ---------------- */
+/* ---------------- عرض النتائج ---------------- */
 const fmtNum=n=>Number.isInteger(n)?n:Math.round(n*10)/10;
 
 function recomputeWaste(sheet){
@@ -358,12 +382,12 @@ function drawSheetToCanvasEl(sheet, idx, scale){
   return cv;
 }
 
-/* ---------------- تصدير PDF (مخططات واضحة مع بيانات عربية) ---------------- */
+/* ---------------- تصدير PDF (كتابة البيانات العربية مباشرة) ---------------- */
 async function doExportPDF(opts){
   opts=opts||{summary:true,sheetData:true,cutOrder:true,banding:true,costs:true};
   if(!layout||!layout.length){ toast('قم بالتحسين أولاً'); return; }
 
-  toast('جارٍ إنشاء ملف PDF عالي الجودة…');
+  toast('جارٍ إنشاء ملف PDF…');
   await ensurePdfLibs();
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF('p', 'mm', 'a4');
@@ -371,7 +395,7 @@ async function doExportPDF(opts){
   const pageWidth = pw - margin*2;
   const pageHeight = ph - margin*2;
 
-  // ===== 1. صفحة الملخص =====
+  // ===== 1. صفحة الملخص (باستخدام html2canvas) =====
   if (opts.summary) {
     const rep = document.getElementById('pdfReport');
     rep.innerHTML = '';
@@ -406,8 +430,8 @@ async function doExportPDF(opts){
     </table>${bandingBlock}`;
     rep.appendChild(summary);
     try {
-      const canvas = await window.html2canvas(summary, { scale: 3, backgroundColor: '#ffffff', useCORS: true });
-      const imgData = canvas.toDataURL('image/jpeg', 0.98);
+      const canvas = await window.html2canvas(summary, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
       const w = pageWidth;
       const h = canvas.height * w / canvas.width;
       pdf.addPage();
@@ -418,7 +442,7 @@ async function doExportPDF(opts){
     rep.innerHTML = '';
   }
 
-  // ===== 2. صفحات الألواح (مخطط + بيانات) =====
+  // ===== 2. صفحات الألواح (مخطط + بيانات مكتوبة مباشرة) =====
   const groups = groupSheets();
   for (let g of groups) {
     const sh = g.sheet;
@@ -429,51 +453,67 @@ async function doExportPDF(opts){
     const canvasEl = drawSheetToCanvasEl(sh, idx, 5.0);
     const imgData = canvasEl.toDataURL('image/jpeg', 0.98);
 
-    // بناء صفحة HTML تحتوي على المخطط والبيانات بالعربية
-    const pageDiv = document.createElement('div');
-    pageDiv.style.cssText = 'width:760px; padding:20px; background:#fff; font-family: "Cairo", Arial, sans-serif; direction: rtl; box-sizing:border-box;';
-    pageDiv.innerHTML = `
-      <div style="display:flex; gap:20px; align-items:flex-start;">
-        <div style="flex: 0 0 65%;">
-          <img src="${imgData}" style="width:100%; height:auto; border:1px solid #ccc; display:block;">
-        </div>
-        <div style="flex:1; font-size:13px; line-height:1.8;">
-          <h3 style="color:#8a5e26; margin:0 0 10px 0;">بيانات اللوح ${idx+1}</h3>
-          <table style="width:100%; border-collapse:collapse;">
-            <tr><td style="padding:4px 0; border-bottom:1px solid #eee;">الأبعاد</td><td style="padding:4px 0; border-bottom:1px solid #eee; font-weight:700;">${settings.L} × ${settings.W} سم</td></tr>
-            <tr><td style="padding:4px 0; border-bottom:1px solid #eee;">عدد القطع</td><td style="padding:4px 0; border-bottom:1px solid #eee; font-weight:700;">${st.count}</td></tr>
-            <tr><td style="padding:4px 0; border-bottom:1px solid #eee;">عمليات القص</td><td style="padding:4px 0; border-bottom:1px solid #eee; font-weight:700;">${st.cuts}</td></tr>
-            <tr><td style="padding:4px 0; border-bottom:1px solid #eee;">الاستفادة</td><td style="padding:4px 0; border-bottom:1px solid #eee; font-weight:700; color:#16a34a;">${st.util.toFixed(1)}%</td></tr>
-            <tr><td style="padding:4px 0; border-bottom:1px solid #eee;">الهدر</td><td style="padding:4px 0; border-bottom:1px solid #eee; font-weight:700; color:#dc2626;">${st.waste.toFixed(1)}%</td></tr>
-            <tr><td style="padding:4px 0; border-bottom:1px solid #eee;">أمتار التلبيس</td><td style="padding:4px 0; border-bottom:1px solid #eee; font-weight:700;">${st.meters.toFixed(2)} م</td></tr>
-            ${opts.costs ? `<tr><td style="padding:4px 0; border-bottom:1px solid #eee;">تكلفة التلبيس</td><td style="padding:4px 0; border-bottom:1px solid #eee; font-weight:700;">$${st.cost.toFixed(2)}</td></tr>` : ''}
-          </table>
-          ${opts.sheetData ? `<div style="margin-top:10px; font-size:11px; color:#475569;"><b>القطع:</b> ${sh.pieces.map(p => `${p.origL}×${p.origW} (${p.name||'بدون اسم'})`).join('، ')}</div>` : ''}
-        </div>
-      </div>
-    `;
+    pdf.addPage();
+    
+    // إضافة المخطط (في النصف الأيسر)
+    const imgW = pageWidth * 0.62;
+    const imgH = canvasEl.height * imgW / canvasEl.width;
+    pdf.addImage(imgData, 'JPEG', margin, margin, imgW, imgH);
 
-    // تحويل الصفحة إلى صورة عبر html2canvas
-    try {
-      const canvasPage = await window.html2canvas(pageDiv, {
-        scale: 2.5,
-        backgroundColor: '#ffffff',
-        useCORS: true,
-        logging: false,
-        allowTaint: true
-      });
-      const imgPageData = canvasPage.toDataURL('image/jpeg', 0.95);
-      const w = pageWidth;
-      const h = canvasPage.height * w / canvasPage.width;
-      pdf.addPage();
-      pdf.addImage(imgPageData, 'JPEG', margin, margin, w, h);
-    } catch (e) {
-      toast('تعذّر إنشاء صفحة اللوح ' + (idx+1));
-      console.error(e);
+    // كتابة البيانات في النصف الأيمن (بالعربية عبر الدالة المساعدة)
+    const dataX = margin + imgW + 6;
+    let y = margin + 4;
+    pdf.setFontSize(11);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setTextColor('#8a5e26');
+    // نكتب العنوان معكوساً (لـ jsPDF)
+    pdf.text(reverseArabic(`بيانات اللوح ${idx+1}`), dataX, y);
+    y += 7;
+    
+    pdf.setFontSize(10);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setTextColor('#1f2933');
+    const lines = [
+      `الأبعاد: ${settings.L} × ${settings.W} سم`,
+      `عدد القطع: ${st.count}`,
+      `عمليات القص: ${st.cuts}`,
+      `الاستفادة: ${st.util.toFixed(1)}%`,
+      `الهدر: ${st.waste.toFixed(1)}%`,
+      `أمتار التلبيس: ${st.meters.toFixed(2)} م`,
+    ];
+    if (opts.costs) {
+      lines.push(`تكلفة التلبيس: $${st.cost.toFixed(2)}`);
     }
+    lines.forEach(line => {
+      // عكس النص العربي
+      const reversed = reverseArabic(line);
+      pdf.text(reversed, dataX, y);
+      y += 6;
+    });
+
+    // قائمة القطع
+    if (opts.sheetData) {
+      pdf.setFontSize(9);
+      pdf.setTextColor('#475569');
+      const cutList = sh.pieces.map(p => `${p.origL}×${p.origW} (${p.name||'بدون اسم'})`).join('، ');
+      const maxWidth = pageWidth - dataX - margin;
+      // تجزئة النص الطويل إلى أسطر
+      const wrapped = pdf.splitTextToSize(reverseArabic(cutList), maxWidth);
+      pdf.text(reverseArabic('القطع:'), dataX, y);
+      y += 4;
+      wrapped.forEach(line => {
+        pdf.text(line, dataX + 5, y);
+        y += 4;
+      });
+    }
+
+    // رقم الصفحة
+    pdf.setFontSize(8);
+    pdf.setTextColor('#a0aec0');
+    pdf.text(`صفحة ${pdf.internal.getNumberOfPages()}`, pageWidth + margin - 20, pageHeight + margin - 4);
   }
 
-  // حفظ الملف (تنزيل مباشر)
+  // حفظ الملف
   const base = (opts.name || settings.planName || 'IQ-Panel-مخطط-القص').toString().trim().replace(/[\\/:*?"<>|]+/g,'-') || 'IQ-Panel';
   const fname = base + '.pdf';
   const blob = pdf.output('blob');
