@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IQ Panel — محسّن قص الألواح</title>
+  <link rel="icon" href="icon-192.png">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#b5803c">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="IQ Panel">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- شريط التحديث -->
+  <div id="updateBanner" class="update-banner hidden">
+    <span>📢 هناك تحديث جديد <strong class="update-version"></strong> – اضغط للتحديث</span>
+    <button class="update-btn btn btn-primary btn-sm">تحديث الآن</button>
+  </div>
+
+  <!-- شاشة حظر الإصدار القديم -->
+  <div id="versionBlocker" class="version-blocker hidden">
+    <div class="blocker-box">
+      <h2>⛔ هذا الإصدار قديم</h2>
+      <p>الإصدار الحالي <strong class="current-version"></strong> غير مدعوم.</p>
+      <p>الرجاء التحديث إلى الإصدار <strong class="required-version"></strong> أو أحدث.</p>
+      <button onclick="location.reload()" class="btn btn-primary">تحديث التطبيق</button>
+    </div>
+  </div>
+
+  <header class="app-header">
+    <div class="brand">
+      <img src="logo.jpeg" alt="IQ Panel" class="logo">
+      <div class="brand-text">
+        <h1>IQ Panel</h1>
+        <span>نظام ذكي لتخطيط وتحسين قص ألواح الأخشاب — أقل هدر، أعلى ربحية</span>
+        <span style="font-size:11px;color:var(--muted);margin-right:8px;">الإصدار <span id="appVersion">1.0.2</span></span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button id="btnNew" class="btn">🆕 مشروع جديد</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar">
+      <section class="card">
+        <h2>1) إعدادات العمل والألواح الخام</h2>
+        <label class="block">اسم مخطط العمل
+          <input type="text" id="planName" placeholder="مثال: مطبخ منزل العميل أحمد">
+        </label>
+        <h3 class="subh">أنواع الألواح الخام (اختر النوع النشط ⊙)</h3>
+        <div class="table-wrap">
+          <table class="mini-table" id="sheetTable">
+            <thead><tr><th>الاسم</th><th>الطول</th><th>العرض</th><th>العدد</th><th>السعر $</th><th>نشط</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <button class="btn btn-sm" id="addSheet">+ إضافة نوع لوح</button>
+        <div class="grid2" style="margin-top:10px">
+          <label>سُمك المنشار/الحرف (سم)<input type="number" id="kerf" placeholder="0" step="0.1" min="0"></label>
+          <label>أجرة قص اللوح فقط ($/لوح)<input type="number" id="cutFee" placeholder="0" step="0.01" min="0"></label>
+        </div>
+        <label class="block">اتجاه القص الأساسي
+          <select id="cutDir">
+            <option value="length">طولي (Rip — موازٍ للطول)</option>
+            <option value="cross">عرضي (Cross — موازٍ للعرض)</option>
+            <option value="free">حر (يختار التطبيق الأفضل تلقائياً)</option>
+          </select>
+        </label>
+        <div class="toggles">
+          <label class="chk"><input type="checkbox" id="allowRotate"> السماح بتدوير القطعة (تجاهل اتجاه التعريق)</label>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>2) أنواع حرف التلبيس (الأسعار بالدولار $)</h2>
+        <table class="mini-table" id="bandTable">
+          <thead><tr><th>النوع</th><th>السعر $/متر</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <button class="btn btn-sm" id="addBand">+ إضافة نوع</button>
+      </section>
+
+      <section class="card">
+        <div class="pieces-head">
+          <h2>3) القطع المطلوبة</h2>
+          <button id="toggleExtra" class="btn btn-sm extra-toggle" type="button">⚙ خيارات إضافية</button>
+        </div>
+        <div class="table-wrap">
+          <table class="mini-table" id="pieceTable">
+            <thead><tr><th>الطول</th><th>العرض</th><th>العدد</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="piece-btns">
+          <button class="btn btn-sm" id="addPiece">+ إضافة قطعة</button>
+          <button class="btn btn-sm" id="addPiece10">+ إضافة ١٠ صفوف</button>
+        </div>
+        <p class="hint">أدخل <b>الطول × العرض × العدد</b> فقط لإدخال سريع. زر <b>⚙ خيارات إضافية</b> بالأعلى يُفعّل (لمرة واحدة) إظهار الاسم ونوع الحرف ومكان التلبيس لكل القطع، ويُلغى تلقائياً عند بدء مشروع جديد.</p>
+      </section>
+    </aside>
+
+    <section class="results">
+      <div id="statsBar" class="stats-bar"></div>
+      <div id="emptyState" class="empty-state">
+        <img src="logo.jpeg" alt="" class="empty-logo">
+        <p>أدخل بيانات اللوح والقطع ثم اضغط <b>«توليد المخطط»</b> لرؤية المخططات.</p>
+      </div>
+      <div id="sheetsArea" class="sheets-area"></div>
+      <p id="dragHint" class="hint hidden">💡 <b>اضغط مع الاستمرار</b> على أي قطعة حتى ترتفع ثم اسحبها. عند الإفلات <b>تلتصق مغناطيسياً</b> بحافة أقرب قطعة تاركةً فاصل سُمك المنشار فقط — على خط قص مستقيم. يمكن نقلها بين الألواح وتتحدّث الإحصائيات تلقائياً.</p>
+      <div id="resultsActions" class="results-actions">
+        <span class="band-legend"><i class="band-swatch"></i> حرف التلبيس (التقشيط)</span>
+        <div class="results-actions-btns">
+          <button id="btnOptimize" class="btn btn-primary btn-lg">⚙️ توليد المخطط</button>
+          <button id="btnPdf" class="btn btn-ghost btn-lg">📄 حفظ المشروع PDF</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="pdfReport" class="pdf-report"></div>
+  <div id="toast" class="toast hidden"></div>
+  <button id="btnInstall" class="install-fab hidden">⬇️ تثبيت التطبيق على الهاتف</button>
+
+  <!-- نوافذ PDF -->
+  <div id="pdfOptModal" class="pdf-modal hidden">
+    <div class="pdf-modal-box pdf-opt-box">
+      <div class="pdf-modal-head">
+        <span class="pdf-modal-title">📄 خيارات حفظ المشروع PDF</span>
+        <button id="pdfOptCancel" class="btn btn-danger" type="button">✕</button>
+      </div>
+      <div class="pdf-opt-body">
+        <label class="block">اسم الملف / المشروع
+          <input type="text" id="pdfName" placeholder="مثال: مطبخ منزل العميل أحمد">
+        </label>
+        <div class="pdf-opt-h">البيانات المُضمّنة في التقرير</div>
+        <label class="chk"><input type="checkbox" id="optSummary" checked> صفحة الملخص الشامل للمشروع</label>
+        <label class="chk"><input type="checkbox" id="optSheetData" checked> بيانات كل لوح (قطع · قصّات · استفادة · هدر · تلبيس)</label>
+        <label class="chk"><input type="checkbox" id="optCutOrder" checked> ترتيب عمليات القص لكل لوح</label>
+        <label class="chk"><input type="checkbox" id="optBanding" checked> تفصيل التلبيس حسب النوع</label>
+        <label class="chk"><input type="checkbox" id="optCosts" checked> التكاليف والأسعار</label>
+        <p class="hint">📍 مكان الحفظ: يُحفظ الملف بالاسم أعلاه، ويسألك المتصفح/الجهاز عن مجلد الحفظ عند التنزيل (أو يضعه في مجلد «التنزيلات»).</p>
+      </div>
+      <div class="pdf-modal-actions pdf-opt-actions">
+        <button id="pdfOptGo" class="btn btn-primary btn-lg" type="button">📄 إنشاء وحفظ PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="pdfModal" class="pdf-modal hidden">
+    <div class="pdf-modal-box">
+      <div class="pdf-modal-head">
+        <span class="pdf-modal-title">📄 ملف PDF جاهز — IQ Panel</span>
+        <div class="pdf-modal-actions">
+          <a id="pdfDownload" class="btn btn-primary" download>⬇️ تنزيل</a>
+          <a id="pdfOpen" class="btn" target="_blank" rel="noopener">↗️ فتح في تبويب</a>
+          <button id="pdfPrint" class="btn" type="button">🖨️ طباعة / حفظ</button>
+          <button id="pdfClose" class="btn btn-danger" type="button">✕ إغلاق</button>
+        </div>
+      </div>
+      <iframe id="pdfFrame" class="pdf-frame" title="معاينة PDF"></iframe>
+      <p class="pdf-modal-hint">إن لم يبدأ التنزيل تلقائياً: استخدم زر «تنزيل» بالأعلى، أو زر التنزيل داخل عارض الـ PDF، أو «طباعة / حفظ» ثم اختر «حفظ كـ PDF» (يعمل على الجوال والكمبيوتر).</p>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch(() => {});
+      });
+    }
+    let deferredPrompt = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault(); deferredPrompt = e;
+      document.getElementById('btnInstall').classList.remove('hidden');
+    });
+    document.getElementById('btnInstall').addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt(); await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      document.getElementById('btnInstall').classList.add('hidden');
+    });
+  </script>
+</body>
+</html>
