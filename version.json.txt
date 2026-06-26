@@ -1,4 +1,4 @@
 {
-  "version": "1.0.16",
+  "version": "1.0.18",
   "minVersion": "1.0.0"
 }
