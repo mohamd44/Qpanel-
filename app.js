@@ -1,9 +1,9 @@
 /* ============================================================
-   Qpanell — محسّن قص ألواح الأخشاب (2D Guillotine)
-   الإصدار: 1.0.16 — PDF يعمل في المتصفح (بدون خادم)
+   Qpanell — محسّن قص ألواح الأخشاب (PDF فقط)
+   الإصدار: 1.0.18 — يعتمد على jsPDF مباشرة (بدون html2canvas)
    ============================================================ */
 
-const APP_VERSION = '1.0.16';
+const APP_VERSION = '1.0.18';
 const MIN_VERSION = '1.0.0';
 const VERSION_CHECK_URL = 'https://mohamd44.github.io/Qpanel-/version.json';
 
@@ -24,29 +24,44 @@ let layout = null;
 let settings = null;
 let uid = 100;
 const nid = () => 'x' + (++uid);
-
-// متغير لتخزين القطع غير الموضوعة
 let _unplacedItems = [];
 
 function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.remove('hidden');
   clearTimeout(t._tm); t._tm=setTimeout(()=>t.classList.add('hidden'),2600); }
 function bandById(id){ return bandTypes.find(b=>b.id===id) || {name:'-',price:0}; }
 
-/* ---------------- تحميل مكتبات الـ PDF ---------------- */
-let _pdfLibsLoaded = false;
+// دالة لعكس النص العربي (للـ jsPDF)
+function reverseText(str) {
+  if (!str) return '';
+  const chars = str.split('');
+  const reversed = [];
+  let i = chars.length - 1;
+  while (i >= 0) {
+    if (chars[i] >= '0' && chars[i] <= '9') {
+      let num = '';
+      while (i >= 0 && chars[i] >= '0' && chars[i] <= '9') {
+        num = chars[i] + num;
+        i--;
+      }
+      reversed.push(num);
+    } else {
+      reversed.push(chars[i]);
+      i--;
+    }
+  }
+  return reversed.join('');
+}
+
+// تحميل jsPDF فقط (بدون html2canvas)
+let _pdfLoaded = false;
 function ensurePdfLibs(){
   return new Promise((resolve, reject) => {
-    if (window.jspdf && window.html2canvas) { _pdfLibsLoaded = true; resolve(); return; }
-    if (_pdfLibsLoaded) { resolve(); return; }
-    const scripts = ['jspdf.umd.min.js', 'html2canvas.min.js'];
-    let loaded = 0;
-    scripts.forEach(src => {
-      const s = document.createElement('script');
-      s.src = src;
-      s.onload = () => { loaded++; if (loaded === scripts.length) { _pdfLibsLoaded = true; resolve(); } };
-      s.onerror = () => reject(new Error('فشل تحميل '+src));
-      document.head.appendChild(s);
-    });
+    if (window.jspdf) { _pdfLoaded = true; resolve(); return; }
+    const s = document.createElement('script');
+    s.src = 'jspdf.umd.min.js';
+    s.onload = () => { _pdfLoaded = true; resolve(); };
+    s.onerror = () => reject(new Error('فشل تحميل jsPDF'));
+    document.head.appendChild(s);
   });
 }
 
@@ -83,14 +98,6 @@ function groupSheets(){
   return groups;
 }
 function cutDirLabel(d){ return d==='length'?'طولي ‖':(d==='cross'?'عرضي ═':'حر ✲'); }
-
-async function logoDataUrl(){
-  if(window._logoDU!==undefined) return window._logoDU;
-  try{ const r=await fetch('logo.jpeg'); const bl=await r.blob();
-    window._logoDU=await new Promise(res=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=()=>res(null); fr.readAsDataURL(bl); });
-  }catch(_){ window._logoDU=null; }
-  return window._logoDU;
-}
 
 /* ---------------- جداول الإدخال ---------------- */
 function renderBandTable(){
@@ -340,30 +347,8 @@ function magnetSnap(sheetIdx, piece, nx, ny, exceptIdx){ const ps=layout[sheetId
 function endDrag(e){ if(!drag) return; clearTimeout(drag.timer); document.removeEventListener('pointermove',onDrag); document.removeEventListener('pointerup',endDrag); document.removeEventListener('pointercancel',cancelDrag); liveCanvases.forEach(c=>c.classList.remove('drop-target')); if(!drag.lifted){ drag.el.classList.remove('armed'); drag=null; return; } const el=drag.el, piece=drag.piece; el.style.pointerEvents='none'; const target=document.elementFromPoint(drag.lastX,drag.lastY); el.style.pointerEvents=''; const tCanvas=target?target.closest('.sheet-canvas'):null; if(tCanvas){ const toSheet=+tCanvas.dataset.sheet; if(piece.l>settings.L+0.01 || piece.w>settings.W+0.01){ toast('⚠️ القطعة أكبر من اللوح — رُفض الإفلات'); } else { const cr=tCanvas.getBoundingClientRect(); const scale=tCanvas.clientWidth/settings.L; let nx=(drag.lastX-cr.left-drag.offX)/scale; let ny=(drag.lastY-cr.top-drag.offY)/scale; nx=Math.max(0,Math.min(nx, settings.L-piece.l)); ny=Math.max(0,Math.min(ny, settings.W-piece.w)); const except = (toSheet===drag.fromSheet) ? drag.pi : -1; let pos = magnetSnap(toSheet, piece, nx, ny, except); if(!pos) pos = findFreeSpot(toSheet, piece, nx, ny, except); if(!pos){ toast('⚠️ لا يوجد مكان كافٍ في هذا اللوح'); } else { piece.x=Math.round(pos.x*10)/10; piece.y=Math.round(pos.y*10)/10; if(toSheet!==drag.fromSheet){ layout[drag.fromSheet].pieces.splice(drag.pi,1); layout[toSheet].pieces.push(piece); layout=layout.filter(s=>s.pieces.length>0); } } } } el.classList.remove('lifting'); el.style.position=''; el.style.pointerEvents=''; drag=null; refreshLive(); }
 function refreshLive(){ const scrollY=window.scrollY; renderResults(); window.scrollTo(0,scrollY); }
 
-/* ---------------- رسم المخططات لملف PDF ---------------- */
-function _haloText(ctx,text,x,y,color,halo){ ctx.save(); ctx.lineJoin='round'; ctx.lineWidth=3; ctx.strokeStyle=halo||'#ffffff'; ctx.strokeText(text,x,y); ctx.fillStyle=color||'#0f2233'; ctx.fillText(text,x,y); ctx.restore(); }
-function _roundRect(ctx,x,y,w,h,r){ r=Math.max(0,Math.min(r,w/2,h/2)); ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
-function _band(ctx,x,y,w,h){ ctx.save(); ctx.fillStyle='#0f766e'; _roundRect(ctx,x,y,w,h,Math.min(w,h)/2); ctx.fill(); ctx.restore(); }
-
-function drawSheetToCanvasEl(sheet, idx, scale){
-  const cv=document.createElement('canvas');
-  const Wpx=Math.max(1,Math.round(settings.L*scale)), Hpx=Math.max(1,Math.round(settings.W*scale));
-  const dpr=2;
-  cv.width=Wpx*dpr; cv.height=Hpx*dpr;
-  cv.style.width='100%'; cv.style.height='auto'; cv.style.display='block';
-  const ctx=cv.getContext('2d');
-  ctx.scale(dpr,dpr);
-  ctx.direction='ltr';
-  ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,Wpx,Hpx);
-  ctx.lineWidth=2; ctx.strokeStyle='#8a5e26'; ctx.strokeRect(0,0,Wpx,Hpx);
-  ctx.textAlign='center'; ctx.textBaseline='middle';
-  recomputeWaste(sheet).forEach(w=>{ const x=w.x*scale,y=w.y*scale,ww=w.w*scale,hh=w.h*scale; if(ww<=0||hh<=0) return; ctx.save(); ctx.setLineDash([5,4]); ctx.lineWidth=1; ctx.strokeStyle='#cbd3dc'; ctx.strokeRect(x+0.5,y+0.5,ww-1,hh-1); ctx.restore(); if(ww>22&&hh>14){ ctx.font='800 9px Cairo, Arial, sans-serif'; _haloText(ctx, fmtNum(w.w)+'', x+ww/2, y+7, '#475569', '#ffffff'); ctx.save(); ctx.translate(x+7, y+hh/2); ctx.rotate(-Math.PI/2); _haloText(ctx, fmtNum(w.h)+'', 0, 0, '#475569', '#ffffff'); ctx.restore(); } });
-  sheet.pieces.forEach((p,pi)=>{ const x=p.x*scale,y=p.y*scale,pw=p.l*scale,ph=p.w*scale; ctx.fillStyle=palette[pi % palette.length]; ctx.fillRect(x,y,pw,ph); ctx.lineWidth=1; ctx.strokeStyle='rgba(0,0,0,.35)'; ctx.strokeRect(x+0.5,y+0.5,Math.max(0,pw-1),Math.max(0,ph-1)); const de=displayEdges(p); const ins=2.5, th=2.5, mg=Math.min(5, pw/4, ph/4); if(de.t) _band(ctx, x+mg, y+ins, Math.max(2,pw-2*mg), th); if(de.b) _band(ctx, x+mg, y+ph-ins-th, Math.max(2,pw-2*mg), th); if(de.l) _band(ctx, x+ins, y+mg, th, Math.max(2,ph-2*mg)); if(de.r) _band(ctx, x+pw-ins-th, y+mg, th, Math.max(2,ph-2*mg)); ctx.font='700 8.5px Cairo, Arial, sans-serif'; if(pw>20) _haloText(ctx, fmtNum(p.l)+'', x+pw/2, y+11, '#0f2233', '#ffffff'); if(ph>20){ ctx.save(); ctx.translate(x+11, y+ph/2); ctx.rotate(-Math.PI/2); _haloText(ctx, fmtNum(p.w)+'', 0, 0, '#0f2233', '#ffffff'); ctx.restore(); } const small=(pw<52||ph<32); if(!small && p.name){ ctx.font='600 9px Cairo, Arial, sans-serif'; _haloText(ctx, p.name+(p.rot?' ⟳':''), x+pw/2, y+ph/2, '#475569', '#ffffff'); } });
-  return cv;
-}
-
 /* ============================================================
-   تصدير PDF — يعمل مباشرة في المتصفح (بدون خادم)
+   تصدير PDF — باستخدام jsPDF مباشرة (بدون html2canvas)
    ============================================================ */
 async function doExportPDF(opts){
   opts=opts||{summary:true,sheetData:true,cutOrder:true,banding:true,costs:true};
@@ -375,6 +360,7 @@ async function doExportPDF(opts){
   const pdf = new jsPDF('p', 'mm', 'a4');
   const pw = 210, ph = 297, margin = 10;
   const pageWidth = pw - margin*2;
+  const pageHeight = ph - margin*2;
 
   // إحصائيات عامة
   const t = totals();
@@ -387,11 +373,9 @@ async function doExportPDF(opts){
   const totalCutLen = Math.round(t.cutLen * 10) / 10;
   const kerf = settings.kerf;
 
-  // مجموعات الألواح المتطابقة
+  // مجموعات الألواح
   const groups = groupSheets();
   const unplacedCount = _unplacedItems ? _unplacedItems.length : 0;
-
-  // توزيع القطع غير الموضوعة
   let wastedPerGroup = new Array(groups.length).fill(0);
   if (unplacedCount > 0 && groups.length > 0) {
     const base = Math.floor(unplacedCount / groups.length);
@@ -401,124 +385,149 @@ async function doExportPDF(opts){
     }
   }
 
-  // ===== 1. صفحة الملخص =====
-  const summaryDiv = document.createElement('div');
-  summaryDiv.style.cssText = 'direction: ltr; padding: 15px; background: #fff; font-family: "Cairo", "Courier New", monospace; font-size: 11px; line-height: 1.6;';
-  summaryDiv.innerHTML = `
-    <div>Used stock sheets ${totalSheets}</div>
-    <div>Total used area ${totalUsed} ${Math.round(totalUtil)}%</div>
-    <div>Total wasted area ${totalWaste} ${Math.round(totalWastePct)}%</div>
-    <div>Total cuts ${totalCuts}</div>
-    <div>Total cut length ${totalCutLen}</div>
-    <div>Cut / blade / kerf thickness ${kerf}</div>
-  `;
+  // دالة لرسم لوح واحد مباشرة على الـ PDF
+  function drawSheetOnPDF(pdf, sheet, count, idx, stats) {
+    const usedArea = Math.round(stats.used);
+    const wasteArea = Math.round(stats.waste);
+    const utilPct = Math.round(stats.util);
+    const wastePct = Math.round(stats.waste);
+    const cuts = stats.cuts;
+    const cutLen = Math.round(stats.cutLen);
+    const panels = stats.count;
+    const wastedPanels = wastedPerGroup[idx] || 0;
 
-  try {
-    const canvasSum = await window.html2canvas(summaryDiv, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
-    const imgSum = canvasSum.toDataURL('image/jpeg', 0.95);
-    const wSum = pageWidth;
-    const hSum = canvasSum.height * wSum / canvasSum.width;
-    pdf.addPage();
-    pdf.addImage(imgSum, 'JPEG', margin, margin, wSum, hSum);
-  } catch(e) { toast('تعذّر إنشاء صفحة الملخص'); }
+    // رسم اللوح الأصلي (مستطيل)
+    const scale = 0.3; // مقياس الرسم ليتناسب مع الصفحة
+    const sheetW = settings.L * scale;
+    const sheetH = settings.W * scale;
+    const x0 = margin;
+    const y0 = margin + 10;
 
-  // ===== 2. صفحات الألواح =====
-  for (let gIdx = 0; gIdx < groups.length; gIdx++) {
-    const g = groups[gIdx];
-    const sh = g.sheet;
-    const count = g.count;
-    const st = sheetStats(sh);
-    const usedArea = Math.round(st.used);
-    const wasteArea = Math.round(st.waste);
-    const utilPct = Math.round(st.util);
-    const wastePct = Math.round(st.waste);
-    const cuts = st.cuts;
-    const cutLen = Math.round(sheetCutLength(sh) * 10) / 10;
-    const panels = st.count;
-    const wastedPanels = wastedPerGroup[gIdx] || 0;
+    // رسم حدود اللوح
+    pdf.setDrawColor(0);
+    pdf.setLineWidth(0.2);
+    pdf.rect(x0, y0, sheetW, sheetH);
 
-    // تجميع القطع حسب الحجم
+    // رسم القطع داخل اللوح
+    pdf.setFillColor(240, 184, 184);
+    sheet.pieces.forEach(p => {
+      const px = x0 + p.x * scale;
+      const py = y0 + p.y * scale;
+      const pw = p.l * scale;
+      const ph = p.w * scale;
+      pdf.setFillColor(240, 184, 184);
+      pdf.rect(px, py, pw, ph, 'F');
+      pdf.setDrawColor(0);
+      pdf.rect(px, py, pw, ph);
+      // كتابة الأبعاد في وسط القطعة (بعد عكس النص)
+      const label = `${p.l}×${p.w}`;
+      pdf.setFontSize(6);
+      pdf.setTextColor(0, 0, 0);
+      pdf.text(reverseText(label), px + pw/2, py + ph/2, { align: 'center', baseline: 'middle' });
+    });
+
+    // كتابة البيانات بجانب اللوح
+    const infoX = x0 + sheetW + 10;
+    let y = y0;
+    pdf.setFontSize(9);
+    pdf.setTextColor(0, 0, 0);
+    pdf.text(reverseText(`Stock sheet ${settings.L}×${settings.W} Qty ${count}`), infoX, y);
+    y += 6;
+    pdf.text(reverseText(`Used area ${usedArea} ${utilPct}%`), infoX, y);
+    y += 5;
+    pdf.text(reverseText(`Wasted area ${wasteArea} ${wastePct}%`), infoX, y);
+    y += 5;
+    pdf.text(reverseText(`Cuts ${cuts}`), infoX, y);
+    y += 5;
+    pdf.text(reverseText(`Cut length ${cutLen}`), infoX, y);
+    y += 5;
+    pdf.text(reverseText(`Panels ${panels}`), infoX, y);
+    y += 5;
+    pdf.text(reverseText(`Wasted panels ${wastedPanels}`), infoX, y);
+    y += 7;
+
+    // Panel Qty
     const panelMap = {};
-    sh.pieces.forEach(p => {
+    sheet.pieces.forEach(p => {
       const key = `${p.origL}×${p.origW}`;
       panelMap[key] = (panelMap[key] || 0) + 1;
     });
-    const panelQtyStr = Object.entries(panelMap)
-      .map(([size, qty]) => `${size} ${qty}`)
-      .join(' ');
+    pdf.text(reverseText('Panel Qty'), infoX, y);
+    y += 5;
+    Object.entries(panelMap).forEach(([size, qty]) => {
+      pdf.text(reverseText(`${size} ${qty}`), infoX, y);
+      y += 4;
+    });
 
-    // بناء جدول قطع النتائج
-    let rows = '';
-    sh.pieces.forEach((p, i) => {
-      const num = i + 1;
-      const l = p.l;
-      const w = p.w;
-      const displayL = p.rot ? w : l;
-      const displayW = p.rot ? l : w;
+    y += 5;
+    pdf.text(reverseText('#  Panel  Cut  Result'), infoX, y);
+    y += 5;
+    sheet.pieces.forEach((p, i) => {
+      const num = i+1;
+      const displayL = p.rot ? p.w : p.l;
+      const displayW = p.rot ? p.l : p.w;
       const xCoord = Math.round(p.x);
       const yCoord = Math.round(p.y);
       let resultStr = '';
       if (xCoord > 0 && yCoord === 0) resultStr = `x=${xCoord}`;
       else if (yCoord > 0 && xCoord === 0) resultStr = `y=${yCoord}`;
       else if (xCoord > 0 && yCoord > 0) resultStr = `x=${xCoord} y=${yCoord}`;
-      rows += `<tr><td>${num}</td><td>${displayL}×${displayW}</td><td>${resultStr}</td></tr>`;
+      const line = `${num}  ${displayL}×${displayW}  ${resultStr}`;
+      pdf.text(reverseText(line), infoX, y);
+      y += 4;
     });
 
-    const repeatMark = count > 1 ? `<div style="text-align:center; margin-top:10px; font-weight:bold;">x${count}</div>` : '';
-
-    // بناء صفحة HTML لكل لوح
-    const sheetDiv = document.createElement('div');
-    sheetDiv.style.cssText = 'direction: ltr; padding: 15px; background: #fff; font-family: "Cairo", "Courier New", monospace; font-size: 11px; line-height: 1.6; width: 100%; box-sizing: border-box;';
-    sheetDiv.innerHTML = `
-      <div>Stock sheet ${settings.L}×${settings.W} Qty ${count}</div>
-      <div>Used area ${usedArea} ${utilPct}%</div>
-      <div>Wasted area ${wasteArea} ${wastePct}%</div>
-      <div>Cuts ${cuts}</div>
-      <div>Cut length ${cutLen}</div>
-      <div>Panels ${panels}</div>
-      <div>Wasted panels ${wastedPanels}</div>
-      <div>Panel Qty ${panelQtyStr}</div>
-      <div style="margin-top:6px;">
-        <table style="width:100%; border-collapse:collapse; font-size:11px;">
-          <tr style="border-bottom:1px solid #000;"><th style="text-align:left;padding:2px 0;">#</th><th style="text-align:left;padding:2px 0;">Panel</th><th style="text-align:left;padding:2px 0;">Cut Result</th></tr>
-          ${rows}
-        </table>
-      </div>
-      ${repeatMark}
-    `;
-
-    try {
-      const canvas = await window.html2canvas(sheetDiv, { scale: 2.5, backgroundColor: '#ffffff', useCORS: true, logging: false, allowTaint: true });
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
-      const w = pageWidth;
-      const h = canvas.height * w / canvas.width;
-      pdf.addPage();
-      pdf.addImage(imgData, 'JPEG', margin, margin, w, h);
-    } catch (e) {
-      toast('تعذّر إنشاء صفحة اللوح ' + (gIdx+1));
-      console.error(e);
+    // علامة التكرار
+    if (count > 1) {
+      pdf.setFontSize(8);
+      pdf.setTextColor(100, 100, 100);
+      pdf.text(reverseText(`x${count}`), pw - margin - 10, ph - margin - 10);
     }
+    // رقم الصفحة
+    pdf.setFontSize(8);
+    pdf.setTextColor(200, 0, 0);
+    pdf.text(reverseText(`${pdf.internal.getNumberOfPages()}`), pw/2, ph - margin - 10, { align: 'center' });
   }
+
+  // صفحة الملخص
+  pdf.addPage();
+  let y = margin + 20;
+  pdf.setFontSize(12);
+  pdf.setTextColor(0, 0, 0);
+  pdf.text(reverseText('ملخص المشروع'), margin, y);
+  y += 10;
+  pdf.setFontSize(10);
+  const summaryLines = [
+    `Used stock sheets ${totalSheets}`,
+    `Total used area ${totalUsed} ${Math.round(totalUtil)}%`,
+    `Total wasted area ${totalWaste} ${Math.round(totalWastePct)}%`,
+    `Total cuts ${totalCuts}`,
+    `Total cut length ${totalCutLen}`,
+    `Cut / blade / kerf thickness ${kerf}`
+  ];
+  summaryLines.forEach(line => {
+    pdf.text(reverseText(line), margin, y);
+    y += 6;
+  });
+
+  // صفحات الألواح
+  groups.forEach((g, idx) => {
+    const st = sheetStats(g.sheet);
+    const cutLen = sheetCutLength(g.sheet);
+    const stats = { ...st, cutLen };
+    pdf.addPage();
+    drawSheetOnPDF(pdf, g.sheet, g.count, idx, stats);
+  });
 
   // حفظ الملف
-  const base = (opts.name || settings.planName || 'IQ-Panel-مخطط-القص').toString().trim().replace(/[\\/:*?"<>|]+/g,'-') || 'IQ-Panel';
+  const base = (opts.name || settings.planName || 'IQ-Panel-مخطط-القص').replace(/[\\/:*?"<>|]/g,'-') || 'IQ-Panel';
   const fname = base + '.pdf';
-  const blob = pdf.output('blob');
-  const url = URL.createObjectURL(blob);
-
   try {
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fname;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    toast('✓ تم حفظ الملف في مجلد التنزيلات');
+    pdf.save(fname);
+    toast('✓ تم حفظ الملف');
   } catch (e) {
     toast('❌ فشل الحفظ: ' + e.message);
-    window.open(url);
   }
-  URL.revokeObjectURL(url);
 }
 
 function openPdfOptions(){
