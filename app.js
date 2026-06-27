@@ -33,6 +33,16 @@ function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.remove(
 function bandById(id){ return bandTypes.find(b=>b.id===id) || {name:'-',price:0}; }
 function colorForSize(l,w,map){ const k=`${l}x${w}`; if(!(k in map)) map[k]=palette[Object.keys(map).length%palette.length]; return map[k]; }
 
+/* ---------------- مؤشر تقدم إنشاء الـ PDF ---------------- */
+function showProgress(pct, label){
+  const ov=$('#progressOverlay'); if(!ov) return;
+  ov.classList.remove('hidden');
+  const p=$('#progressPct'); if(p) p.textContent=Math.round(pct)+'%';
+  const l=$('#progressLabel'); if(l && label) l.textContent=label;
+}
+function hideProgress(){ const ov=$('#progressOverlay'); if(ov) ov.classList.add('hidden'); }
+const _sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
+
 /* ---------------- تحميل مكتبات الـ PDF عند الحاجة فقط ---------------- */
 let _pdfLibsP=null;
 function _loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=()=>rej(new Error('فشل تحميل '+src)); document.head.appendChild(s); }); }
@@ -661,7 +671,7 @@ function refreshLive(){
 function _haloText(ctx,text,x,y,color,halo){
   ctx.save();
   ctx.lineJoin='round';
-  ctx.lineWidth=5; ctx.strokeStyle=halo||'#ffffff';
+  ctx.lineWidth=3; ctx.strokeStyle=halo||'#ffffff';
   ctx.strokeText(text,x,y);
   ctx.fillStyle=color||'#0f2233';
   ctx.fillText(text,x,y);
@@ -676,43 +686,6 @@ function _roundRect(ctx,x,y,w,h,r){
 function _band(ctx,x,y,w,h){
   ctx.save(); ctx.fillStyle='#0f766e';
   _roundRect(ctx,x,y,w,h,Math.min(w,h)/2); ctx.fill();
-  ctx.restore();
-}
-function _chip(ctx,text,cx,cy,vertical){
-  ctx.save();
-  ctx.font='700 10px Cairo, Arial, sans-serif';
-  ctx.textAlign='center'; ctx.textBaseline='middle';
-  const tw=ctx.measureText(text).width, padX=3.5, padY=2, fh=11;
-  const bw=tw+padX*2, bh=fh+padY*2;
-  ctx.translate(cx,cy); if(vertical) ctx.rotate(-Math.PI/2);
-  ctx.fillStyle='rgba(255,255,255,.95)';
-  _roundRect(ctx,-bw/2,-bh/2,bw,bh,3); ctx.fill();
-  ctx.strokeStyle='rgba(15,34,51,.12)'; ctx.lineWidth=0.6;
-  _roundRect(ctx,-bw/2,-bh/2,bw,bh,3); ctx.stroke();
-  ctx.fillStyle='#0f2233'; ctx.fillText(text,0,0);
-  ctx.restore();
-}
-function _dimH(ctx,x1,x2,y,label){
-  ctx.save();
-  ctx.strokeStyle='#a8706f'; ctx.lineWidth=1; ctx.lineCap='butt';
-  ctx.beginPath(); ctx.moveTo(x1,y); ctx.lineTo(x2,y); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(x1,y-3.5); ctx.lineTo(x1,y+3.5); ctx.moveTo(x2,y-3.5); ctx.lineTo(x2,y+3.5); ctx.stroke();
-  ctx.font='800 9px Cairo, Arial, sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-  const tw=ctx.measureText(label).width;
-  ctx.fillStyle='#ffffff'; ctx.fillRect((x1+x2)/2-tw/2-3, y-7, tw+6, 13);
-  ctx.fillStyle='#a8706f'; ctx.fillText(label,(x1+x2)/2, y);
-  ctx.restore();
-}
-function _dimV(ctx,x,y1,y2,label){
-  ctx.save();
-  ctx.strokeStyle='#a8706f'; ctx.lineWidth=1; ctx.lineCap='butt';
-  ctx.beginPath(); ctx.moveTo(x,y1); ctx.lineTo(x,y2); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(x-3.5,y1); ctx.lineTo(x+3.5,y1); ctx.moveTo(x-3.5,y2); ctx.lineTo(x+3.5,y2); ctx.stroke();
-  ctx.font='800 9px Cairo, Arial, sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-  const tw=ctx.measureText(label).width;
-  ctx.translate(x,(y1+y2)/2); ctx.rotate(-Math.PI/2);
-  ctx.fillStyle='#ffffff'; ctx.fillRect(-tw/2-3,-7,tw+6,13);
-  ctx.fillStyle='#a8706f'; ctx.fillText(label,0,0);
   ctx.restore();
 }
 function drawSheetToCanvasEl(sheet, idx, s){
@@ -736,7 +709,7 @@ function drawSheetToCanvasEl(sheet, idx, s){
     ctx.strokeRect(x+0.5,y+0.5,ww-1,hh-1);
     ctx.restore();
     if(ww>30&&hh>22){
-      ctx.font='800 15px Cairo, Arial, sans-serif';
+      ctx.font='500 15px Cairo, Arial, sans-serif';
       _haloText(ctx, fmtNum(w.w)+'', x+ww/2, y+11, '#475569', '#ffffff');
       ctx.save(); ctx.translate(x+11, y+hh/2); ctx.rotate(-Math.PI/2);
       _haloText(ctx, fmtNum(w.h)+'', 0, 0, '#475569', '#ffffff'); ctx.restore();
@@ -753,13 +726,13 @@ function drawSheetToCanvasEl(sheet, idx, s){
     if(de.b) _band(ctx, x+mg, y+ph-ins-th, Math.max(2,pw-2*mg), th);
     if(de.l) _band(ctx, x+ins, y+mg, th, Math.max(2,ph-2*mg));
     if(de.r) _band(ctx, x+pw-ins-th, y+mg, th, Math.max(2,ph-2*mg));
-    ctx.font='800 20px Cairo, Arial, sans-serif';
+    ctx.font='500 20px Cairo, Arial, sans-serif';
     if(pw>20) _haloText(ctx, fmtNum(p.l)+'', x+pw/2, y+18, '#0f2233', '#ffffff');
     if(ph>20){ ctx.save(); ctx.translate(x+18, y+ph/2); ctx.rotate(-Math.PI/2);
       _haloText(ctx, fmtNum(p.w)+'', 0, 0, '#0f2233', '#ffffff'); ctx.restore(); }
     const small=(pw<52||ph<32);
     if(!small && p.name){
-      ctx.font='700 18px Cairo, Arial, sans-serif';
+      ctx.font='500 18px Cairo, Arial, sans-serif';
       _haloText(ctx, p.name+(p.rot?' ⟳':''), x+pw/2, y+ph/2, '#475569', '#ffffff');
     }
   });
@@ -769,7 +742,7 @@ function drawSheetToCanvasEl(sheet, idx, s){
   const by=Hpx+12;
   ctx.beginPath(); ctx.moveTo(0,by); ctx.lineTo(Wpx,by); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(0,by-4); ctx.lineTo(0,by+4); ctx.moveTo(Wpx,by-4); ctx.lineTo(Wpx,by+4); ctx.stroke();
-  ctx.font='800 16px Cairo, Arial, sans-serif';
+  ctx.font='600 16px Cairo, Arial, sans-serif';
   const lt=fmtNum(settings.L)+''; const ltw=ctx.measureText(lt).width;
   ctx.fillStyle='#ffffff'; ctx.fillRect(Wpx/2-ltw/2-5, by-10, ltw+10, 20);
   ctx.fillStyle='#a8706f'; ctx.fillText(lt, Wpx/2, by);
@@ -784,12 +757,14 @@ function drawSheetToCanvasEl(sheet, idx, s){
   return cv;
 }
 
-/* ---------------- تصدير PDF (تصميم أنيق بأسلوب Cutlist Optimizer) ---------------- */
+/* ---------------- تصدير PDF (تصميم أنيق + مؤشر تقدم) ---------------- */
 async function doExportPDF(opts){
   opts=opts||{summary:true,sheetData:true,cutOrder:true,banding:true,costs:true};
   if(!layout||!layout.length){ toast('قم بالتحسين أولاً'); return; }
-  toast('جارٍ إنشاء ملف PDF…');
+  showProgress(3,'جارٍ التحضير…');
+  await _sleep(30);
   await ensurePdfLibs();
+  showProgress(12,'تحميل المكتبات…');
   const LOGO=await logoDataUrl();
   const t=totals(); const rep=$('#pdfReport'); rep.innerHTML='';
   const sheetsCost=t.sheets*(settings.sheetPrice||0);
@@ -864,6 +839,7 @@ async function doExportPDF(opts){
       ${costsBlock}`;
     rep.appendChild(summary);
   }
+  showProgress(25,'تجهيز المخططات…');
 
   groupSheets().forEach((g)=>{
     const sh=g.sheet, i=g.idx, _cnt=g.count;
@@ -896,7 +872,7 @@ async function doExportPDF(opts){
     const _stg=block.querySelector('.stage'); if(_stg) _stg.style.padding='0';
     const _host=block.querySelector('.sheet-canvas');
     _host.style.height='auto'; _host.style.overflow='visible'; _host.innerHTML='';
-    _host.appendChild(drawSheetToCanvasEl(sh,i,6));
+    _host.appendChild(drawSheetToCanvasEl(sh,i,5));
     imgCol.appendChild(block);
 
     const dataCol=document.createElement('div'); dataCol.className='rpt-data-col';
@@ -953,7 +929,10 @@ async function doExportPDF(opts){
   const pdf=new jsPDF('p','mm','a4');
   const pw=210, ph=297, margin=8;
   const pagesEls=rep.querySelectorAll('.pdf-page');
+  const total=pagesEls.length||1;
   for(let i=0;i<pagesEls.length;i++){
+    showProgress(30 + (i/total)*60, `معالجة الصفحة ${i+1} من ${total}…`);
+    await _sleep(20);
     const cv=await html2canvas(pagesEls[i],{scale:2,backgroundColor:'#ffffff',useCORS:true,allowTaint:false,imageTimeout:0});
     const img=cv.toDataURL('image/jpeg',0.92);
     const w=pw-margin*2; const h=cv.height*w/cv.width;
@@ -973,6 +952,7 @@ async function doExportPDF(opts){
       }
     }
   }
+  showProgress(94,'إنهاء الملف…');
   const base=(opts.name||settings.planName||'IQ-Panel-مخطط-القص').toString().trim().replace(/[\\/:*?"<>|]+/g,'-')||'IQ-Panel';
   const fname=base+'.pdf';
   try{
@@ -981,12 +961,15 @@ async function doExportPDF(opts){
     if(window._qpUrl){ try{ URL.revokeObjectURL(window._qpUrl); }catch(_){ } }
     window._qpUrl=url;
     try{ const a=document.createElement('a'); a.href=url; a.download=fname; document.body.appendChild(a); a.click(); a.remove(); }catch(_){}
+    showProgress(100,'تم ✓');
+    await _sleep(350);
     openPdfModal(url, fname);
     toast('✓ تم إنشاء ملف PDF');
   }catch(err){
     try{ pdf.save(fname); toast('✓ تم حفظ ملف PDF'); }
     catch(e2){ toast('تعذّر إنشاء الملف: '+(e2.message||e2)); }
   }
+  hideProgress();
   rep.innerHTML='';
 }
 
