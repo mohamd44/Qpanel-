@@ -32,7 +32,7 @@
     </div>
   </header>
 
-  <main class="layout">
+  <main class="layout" style="display:none">
     <!-- لوحة الإدخال -->
     <aside class="sidebar">
       <!-- إعدادات اللوح -->
@@ -108,7 +108,7 @@
         <p>أدخل بيانات اللوح والقطع ثم اضغط <b>«توليد المخطط»</b> لرؤية المخططات.</p>
       </div>
       <div id="sheetsArea" class="sheets-area"></div>
-      <p id="dragHint" class="hint hidden">💡 <b>اضغط مع الاستمرار</b> على أي قطعة حتى ترتفع ثم اسحبها. عند الإفلات <b>تلتصق مغناطيسياً</b> بحافة أقرب قطعة تاركةً فاصل سُمك المنشار فقط — على خط قص مستقيم. يمكن نقلها بين الألواح وتتحدّث الإحصائيات تلقائياً.</p>
+      <p id="dragHint" class="hint hidden">💡 <b>اضغط مع الاستمرار</b> على أي قطعة حتى ترتفع ثم اسحبها...</p>
       <div id="resultsActions" class="results-actions">
         <span class="band-legend"><i class="band-swatch"></i> حرف التلبيس (التقشيط)</span>
         <div class="results-actions-btns">
@@ -119,7 +119,7 @@
     </section>
   </main>
 
-  <!-- باقي النوافذ كما هي (بدون تغيير) -->
+  <!-- حاوية تقرير الـ PDF (مخفية) -->
   <div id="pdfReport" class="pdf-report"></div>
   <div id="toast" class="toast hidden"></div>
 
@@ -133,12 +133,11 @@
 
   <button id="btnInstall" class="install-fab hidden">⬇️ تثبيت التطبيق على الهاتف</button>
 
-  <!-- نافذة تسجيل الدخول (مضافة حديثاً) -->
-  <div id="authModal" class="pdf-modal hidden">
+  <!-- نافذة تسجيل الدخول (إجبارية – بدون زر إغلاق) -->
+  <div id="authModal" class="pdf-modal">
     <div class="pdf-modal-box" style="max-width:380px">
       <div class="pdf-modal-head">
-        <span class="pdf-modal-title">🔐 تسجيل الدخول</span>
-        <button id="authClose" class="btn btn-danger" type="button">✕</button>
+        <span class="pdf-modal-title">🔐 تسجيل الدخول مطلوب</span>
       </div>
       <div style="padding:14px 16px; display:flex; flex-direction:column; gap:10px">
         <input type="email" id="authEmail" placeholder="البريد الإلكتروني" style="direction:ltr">
@@ -152,7 +151,7 @@
     </div>
   </div>
 
-  <!-- نافذة خيارات PDF (موجودة مسبقاً) -->
+  <!-- نافذة خيارات PDF -->
   <div id="pdfOptModal" class="pdf-modal hidden">
     <div class="pdf-modal-box pdf-opt-box">
       <div class="pdf-modal-head">
