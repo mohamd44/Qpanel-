@@ -1,71 +1,44 @@
 /* ============================================================
-   Qpanell — محسّن قص ألواح الأخشاب
-   الإصدار: 1.0.20 — PDF بمخططات مرسومة عبر Canvas
+   Qpanell — محسّن قص ألواح الأخشاب (2D Guillotine)
+   كل الأبعاد بالسنتيمتر — الأسعار بالدولار $
    ============================================================ */
-
-const APP_VERSION = '1.0.20';
-const MIN_VERSION = '1.0.0';
-const VERSION_CHECK_URL = 'https://mohamd44.github.io/Qpanel-/version.json';
 
 const $ = (s) => document.querySelector(s);
 const palette = ['#dbe7f5','#fde9d2','#d8f0e0','#f5d8e6','#e7dcf5','#fdf0c8',
                  '#d2eef5','#f5dcd2','#e2f5d2','#f0d2f0','#d2d8f5','#f5f0d2'];
 
+/* ---------------- الحالة (State) ---------------- */
 let bandTypes = [
   { id: 'b1', name: 'PVC 0.4 مم', price: 0.30 },
   { id: 'b2', name: 'PVC 2 مم',   price: 0.80 },
   { id: 'b0', name: 'بدون تلبيس', price: 0.00 },
 ];
 let pieces = [];
-let showExtra = false;
+let showExtra = false;   // زر موحّد: إظهار/إخفاء الخيارات الإضافية (الاسم/نوع الحرف/التلبيس) لكل القطع دفعة واحدة
+function applyExtraToggleUI(){
+  const btn=document.getElementById('toggleExtra'); if(!btn) return;
+  btn.classList.toggle('on', showExtra);
+  btn.textContent = showExtra ? '⚙ إخفاء الخيارات الإضافية' : '⚙ خيارات إضافية';
+}
 let sheetTypes = [ { id:'s1', name:'لوح', l:null, w:null, qty:null, price:null } ];
 let activeSheetId = 's1';
-let layout = null;
-let settings = null;
+let layout = null;       // نتيجة آخر تحسين
+let settings = null;     // إعدادات اللوح وقت التحسين
 let uid = 100;
 const nid = () => 'x' + (++uid);
-let _unplacedItems = [];
 
+/* ---------------- أدوات مساعدة ---------------- */
 function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.remove('hidden');
   clearTimeout(t._tm); t._tm=setTimeout(()=>t.classList.add('hidden'),2600); }
 function bandById(id){ return bandTypes.find(b=>b.id===id) || {name:'-',price:0}; }
+function colorForSize(l,w,map){ const k=`${l}x${w}`; if(!(k in map)) map[k]=palette[Object.keys(map).length%palette.length]; return map[k]; }
 
-// دالة لعكس النص العربي للـ jsPDF
-function reverseText(str) {
-  if (!str) return '';
-  const chars = str.split('');
-  const reversed = [];
-  let i = chars.length - 1;
-  while (i >= 0) {
-    if (chars[i] >= '0' && chars[i] <= '9') {
-      let num = '';
-      while (i >= 0 && chars[i] >= '0' && chars[i] <= '9') {
-        num = chars[i] + num;
-        i--;
-      }
-      reversed.push(num);
-    } else {
-      reversed.push(chars[i]);
-      i--;
-    }
-  }
-  return reversed.join('');
-}
+/* ---------------- تحميل مكتبات الـ PDF عند الحاجة فقط (تسريع بدء التطبيق) ---------------- */
+let _pdfLibsP=null;
+function _loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=()=>rej(new Error('فشل تحميل '+src)); document.head.appendChild(s); }); }
+async function ensurePdfLibs(){ if(window.jspdf&&window.html2canvas) return; if(!_pdfLibsP){ _pdfLibsP=Promise.all([_loadScript('jspdf.umd.min.js'),_loadScript('html2canvas.min.js')]); } await _pdfLibsP; }
 
-/* ---------------- تحميل jsPDF فقط (بدون html2canvas) ---------------- */
-let _pdfLoaded = false;
-function ensurePdfLibs(){
-  return new Promise((resolve, reject) => {
-    if (window.jspdf) { _pdfLoaded = true; resolve(); return; }
-    const s = document.createElement('script');
-    s.src = 'jspdf.umd.min.js';
-    s.onload = () => { _pdfLoaded = true; resolve(); };
-    s.onerror = () => reject(new Error('فشل تحميل jsPDF'));
-    document.head.appendChild(s);
-  });
-}
-
-/* ---------------- حفظ واستعادة الحالة ---------------- */
+/* ---------------- حفظ آخر مشروع تلقائياً (حتى الضغط على «مشروع جديد») ---------------- */
 const LS_KEY='iqpanel_project_v2';
 function _readInputs(){ return {
   planName:($('#planName')&&$('#planName').value)||'',
@@ -86,25 +59,46 @@ function loadState(){ try{ const raw=localStorage.getItem(LS_KEY); if(!raw) retu
   return d.inputs||{};
 }catch(_){ return null; } }
 
+/* ---------------- المقاسات المكررة: مفتاح المقاس وعدّ التكرارات ---------------- */
 function sizeKey(p){ const a=(p.origL!=null?p.origL:p.l), b=(p.origW!=null?p.origW:p.w); const mn=Math.min(a,b), mx=Math.max(a,b); return mn+'x'+mx; }
+function layoutSizeCounts(){ const m={}; (layout||[]).forEach(sh=>sh.pieces.forEach(p=>{ const k=sizeKey(p); m[k]=(m[k]||0)+1; })); return m; }
 
+/* ---------------- تجميع الألواح المتطابقة (رسم مخطط واحد + ×العدد) ---------------- */
+function sheetFingerprint(sh){
+  return sh.pieces.map(p=>[Math.round(p.x*10),Math.round(p.y*10),Math.round(p.l*10),Math.round(p.w*10),(p.rot?1:0),(p.bandId||''),(p.edges?(''+(!!p.edges.t)+(!!p.edges.b)+(!!p.edges.l)+(!!p.edges.r)):'')].join(','))
+    .sort().join('|');
+}
 function groupSheets(){
   const groups=[]; const map={};
   (layout||[]).forEach((sh,idx)=>{
-    const fp=sh.pieces.map(p=>[Math.round(p.x*10),Math.round(p.y*10),Math.round(p.l*10),Math.round(p.w*10),(p.rot?1:0),(p.bandId||''),(p.edges?(''+(!!p.edges.t)+(!!p.edges.b)+(!!p.edges.l)+(!!p.edges.r)):'')].join(',')).sort().join('|');
+    const fp=sheetFingerprint(sh);
     if(map[fp]!=null){ const g=groups[map[fp]]; g.count++; g.idxs.push(idx); }
     else { map[fp]=groups.length; groups.push({sheet:sh, idx:idx, count:1, idxs:[idx], fp:fp}); }
   });
   return groups;
 }
+
+/* ---------------- وصف اتجاه القص ---------------- */
 function cutDirLabel(d){ return d==='length'?'طولي ‖':(d==='cross'?'عرضي ═':'حر ✲'); }
+
+/* شعار التطبيق كـ Data URL (يمنع "تلويث" الـ canvas ويضمن ظهوره في الـ PDF على كل الاستضافات) */
+async function logoDataUrl(){
+  if(window._logoDU!==undefined) return window._logoDU;
+  try{ const r=await fetch('logo.jpeg'); const bl=await r.blob();
+    window._logoDU=await new Promise(res=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=()=>res(null); fr.readAsDataURL(bl); });
+  }catch(_){ window._logoDU=null; }
+  return window._logoDU;
+}
 
 /* ---------------- جداول الإدخال ---------------- */
 function renderBandTable(){
   const tb = $('#bandTable tbody'); tb.innerHTML='';
   bandTypes.forEach(b=>{
     const tr=document.createElement('tr');
-    tr.innerHTML = `<td><input value="${b.name}" data-id="${b.id}" data-f="name"></td><td><input type="number" step="0.01" min="0" value="${b.price}" data-id="${b.id}" data-f="price"></td><td><button class="btn btn-danger" data-del="${b.id}">✕</button></td>`;
+    tr.innerHTML = `
+      <td><input value="${b.name}" data-id="${b.id}" data-f="name"></td>
+      <td><input type="number" step="0.01" min="0" value="${b.price}" data-id="${b.id}" data-f="price"></td>
+      <td><button class="btn btn-danger" data-del="${b.id}">✕</button></td>`;
     tb.appendChild(tr);
   });
   tb.querySelectorAll('input').forEach(inp=>inp.addEventListener('input',e=>{
@@ -121,7 +115,14 @@ function renderSheetTable(){
   const val=v=>v==null?'':v;
   sheetTypes.forEach(s=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td><input value="${val(s.name)}" data-id="${s.id}" data-f="name" style="min-width:54px"></td><td><input type="number" min="1" value="${val(s.l)}" data-id="${s.id}" data-f="l"></td><td><input type="number" min="1" value="${val(s.w)}" data-id="${s.id}" data-f="w"></td><td><input type="number" min="1" value="${val(s.qty)}" data-id="${s.id}" data-f="qty"></td><td><input type="number" min="0" step="0.01" value="${val(s.price)}" data-id="${s.id}" data-f="price"></td><td style="text-align:center"><input type="radio" name="activeSheet" ${s.id===activeSheetId?'checked':''} data-active="${s.id}"></td><td><button class="btn btn-danger" data-del="${s.id}">\u2715</button></td>`;
+    tr.innerHTML=`
+      <td><input value="${val(s.name)}" data-id="${s.id}" data-f="name" style="min-width:54px"></td>
+      <td><input type="number" min="1" value="${val(s.l)}" data-id="${s.id}" data-f="l"></td>
+      <td><input type="number" min="1" value="${val(s.w)}" data-id="${s.id}" data-f="w"></td>
+      <td><input type="number" min="1" value="${val(s.qty)}" data-id="${s.id}" data-f="qty"></td>
+      <td><input type="number" min="0" step="0.01" value="${val(s.price)}" data-id="${s.id}" data-f="price"></td>
+      <td style="text-align:center"><input type="radio" name="activeSheet" ${s.id===activeSheetId?'checked':''} data-active="${s.id}"></td>
+      <td><button class="btn btn-danger" data-del="${s.id}">\u2715</button></td>`;
     tb.appendChild(tr);
   });
   tb.querySelectorAll('input[data-f]').forEach(inp=>inp.addEventListener('input',e=>{
@@ -144,22 +145,46 @@ function renderPieceTable(){
   pieces.forEach(p=>{
     const opts=bandTypes.map(b=>`<option value="${b.id}" ${b.id===p.bandId?'selected':''}>${b.name}</option>`).join('');
     const eb=(k,sym)=>`<button class="edge-btn ${p.edges[k]?'on':''}" data-id="${p.id}" data-e="${k}" title="${k}">${sym}</button>`;
+
+    // الصف الأساسي: الطول × العرض × العدد فقط (إدخال سريع دون تشتت)
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td><input type="number" min="1" value="${val(p.l)}" data-id="${p.id}" data-f="l"></td><td><input type="number" min="1" value="${val(p.w)}" data-id="${p.id}" data-f="w"></td><td><input type="number" min="1" value="${val(p.qty)}" data-id="${p.id}" data-f="qty"></td><td><button class="btn btn-danger" data-del="${p.id}">✕</button></td>`;
+    tr.innerHTML=`
+      <td><input type="number" min="1" value="${val(p.l)}" data-id="${p.id}" data-f="l"></td>
+      <td><input type="number" min="1" value="${val(p.w)}" data-id="${p.id}" data-f="w"></td>
+      <td><input type="number" min="1" value="${val(p.qty)}" data-id="${p.id}" data-f="qty"></td>
+      <td><button class="btn btn-danger" data-del="${p.id}">✕</button></td>`;
     tb.appendChild(tr);
+
+    // صف الخيارات الإضافية: يظهر لكل القطع فقط عند تفعيل الزر العلوي الموحّد (showExtra)
     if(showExtra){
       const tro=document.createElement('tr');
       tro.className='opt-row';
       tro.dataset.optrow=p.id;
-      tro.innerHTML=`<td colspan="4"><div class="opt-grid"><label class="opt-field">اسم القطعة<input value="${val(p.name)}" data-id="${p.id}" data-f="name" placeholder="اختياري"></label><label class="opt-field">نوع الحرف<select data-id="${p.id}" data-f="bandId">${opts}</select></label><div class="opt-field">مكان التلبيس (الأطراف)<div class="edge-toggles">${eb('t','↑')}${eb('b','↓')}${eb('l','←')}${eb('r','→')}</div></div></div></td>`;
+      tro.innerHTML=`
+        <td colspan="4">
+          <div class="opt-grid">
+            <label class="opt-field">اسم القطعة
+              <input value="${val(p.name)}" data-id="${p.id}" data-f="name" placeholder="اختياري">
+            </label>
+            <label class="opt-field">نوع الحرف
+              <select data-id="${p.id}" data-f="bandId">${opts}</select>
+            </label>
+            <div class="opt-field">مكان التلبيس (الأطراف)
+              <div class="edge-toggles">${eb('t','↑')}${eb('b','↓')}${eb('l','←')}${eb('r','→')}</div>
+            </div>
+          </div>
+        </td>`;
       tb.appendChild(tro);
     }
   });
+
   tb.querySelectorAll('input,select').forEach(inp=>inp.addEventListener('input',e=>{
     const p=pieces.find(x=>x.id===e.target.dataset.id); const f=e.target.dataset.f;
     p[f]=['l','w','qty'].includes(f)?(e.target.value===''?null:parseFloat(e.target.value)):e.target.value;
   }));
   tb.querySelectorAll('.edge-btn').forEach(btn=>{
+    // التبديل على pointerdown مع منع السلوك الافتراضي حتى لا يُسحب التركيز من الحقل
+    // وبالتالي لا تُغلق لوحة المفاتيح عند اختيار حرف التلبيس (التقشيط)
     btn.addEventListener('pointerdown',e=>{
       e.preventDefault();
       const p=pieces.find(x=>x.id===btn.dataset.id); const k=btn.dataset.e;
@@ -167,11 +192,13 @@ function renderPieceTable(){
     });
   });
   tb.querySelectorAll('[data-del]').forEach(btn=>{
+    // منع سحب التركيز عند الضغط على زر الحذف (حتى لا تُغلق لوحة المفاتيح)
     btn.addEventListener('mousedown',e=>e.preventDefault());
     btn.addEventListener('click',e=>{
       const delId=e.currentTarget.dataset.del;
       const idx=pieces.findIndex(x=>x.id===delId);
       pieces=pieces.filter(x=>x.id!==delId); renderPieceTable();
+      // إبقاء لوحة المفاتيح مفتوحة: ننقل التركيز إلى اسم أقرب قطعة متبقية
       if(pieces.length){
         const ni=Math.min(idx, pieces.length-1);
         const inp=document.querySelector(`#pieceTable tbody input[data-id="${pieces[ni].id}"][data-f="l"]`);
@@ -181,7 +208,7 @@ function renderPieceTable(){
   });
 }
 
-/* ---------------- الخوارزمية والإحصائيات ---------------- */
+/* ---------------- خوارزمية الـ Guillotine ---------------- */
 function optimize(){
   const at=sheetTypes.find(s=>s.id===activeSheetId)||sheetTypes[0];
   const L=+at.l, W=+at.w, qty=+at.qty||0;
@@ -189,12 +216,16 @@ function optimize(){
   const cutFee=+$('#cutFee').value||0, planName=$('#planName').value.trim();
   if(!(L>0&&W>0)){ toast('أدخل أبعاد لوح صحيحة في جدول الأنواع'); return; }
   settings={L,W,qty,kerf,cutDir,allowRotate,colorize:false,sheetPrice:+at.price||0,sheetName:(at.name||'لوح'),cutFee,planName};
+
+  // توسيع القطع حسب العدد
   const items=[];
   pieces.forEach(p=>{ for(let i=0;i<(p.qty||0);i++) items.push({...p, _l:p.l, _w:p.w}); });
   if(!items.length){ toast('أضف قطعاً أولاً'); return; }
   items.sort((a,b)=> (b._l*b._w)-(a._l*a._w) || Math.max(b._l,b._w)-Math.max(a._l,a._w));
+
   const sheets=[]; const unplaced=[];
   const fits=(fr,pl,pw)=> pl<=fr.w+1e-6 && pw<=fr.h+1e-6;
+
   function tryPlace(s,it){
     let best=null,score=Infinity,rot=false;
     for(const fr of s.free){
@@ -208,18 +239,27 @@ function optimize(){
     if(rightW>0.05) s.cuts++; if(bottomH>0.05) s.cuts++;
     s.free=s.free.filter(f=>f!==best);
     let r1,r2;
-    if(cutDir==='length'){ r1={x:best.x+pl+kerf, y:best.y, w:rightW, h:best.h}; r2={x:best.x, y:best.y+pw+kerf, w:pl, h:bottomH}; }
-    else if(cutDir==='cross'){ r1={x:best.x, y:best.y+pw+kerf, w:best.w, h:bottomH}; r2={x:best.x+pl+kerf, y:best.y, w:rightW, h:pw}; }
-    else {
-      const aR1={x:best.x+pl+kerf, y:best.y, w:rightW, h:best.h}; const aR2={x:best.x, y:best.y+pw+kerf, w:pl, h:bottomH};
-      const bR1={x:best.x, y:best.y+pw+kerf, w:best.w, h:bottomH}; const bR2={x:best.x+pl+kerf, y:best.y, w:rightW, h:pw};
-      const maxA=Math.max(aR1.w*aR1.h, aR2.w*aR2.h); const maxB=Math.max(bR1.w*bR1.h, bR2.w*bR2.h);
+    if(cutDir==='length'){
+      r1={x:best.x+pl+kerf, y:best.y, w:rightW, h:best.h};
+      r2={x:best.x, y:best.y+pw+kerf, w:pl, h:bottomH};
+    } else if(cutDir==='cross'){
+      r1={x:best.x, y:best.y+pw+kerf, w:best.w, h:bottomH};
+      r2={x:best.x+pl+kerf, y:best.y, w:rightW, h:pw};
+    } else {
+      // حر: اختر التقسيم الذي يترك أكبر مستطيل فائض قابل للاستخدام
+      const aR1={x:best.x+pl+kerf, y:best.y, w:rightW, h:best.h};
+      const aR2={x:best.x, y:best.y+pw+kerf, w:pl, h:bottomH};
+      const bR1={x:best.x, y:best.y+pw+kerf, w:best.w, h:bottomH};
+      const bR2={x:best.x+pl+kerf, y:best.y, w:rightW, h:pw};
+      const maxA=Math.max(aR1.w*aR1.h, aR2.w*aR2.h);
+      const maxB=Math.max(bR1.w*bR1.h, bR2.w*bR2.h);
       if(maxA>=maxB){ r1=aR1; r2=aR2; } else { r1=bR1; r2=bR2; }
     }
     if(r1.w>0.05&&r1.h>0.05) s.free.push(r1);
     if(r2.w>0.05&&r2.h>0.05) s.free.push(r2);
     return true;
   }
+
   for(const it of items){
     let done=false;
     for(const s of sheets){ if(tryPlace(s,it)){done=true;break;} }
@@ -229,24 +269,76 @@ function optimize(){
     }
     if(!done) unplaced.push(it);
   }
-  layout = sheets.map(s=>({ cuts:s.cuts, pieces:s.placed.map(p=>({ id:nid(), x:p.x, y:p.y, l:p.l, w:p.w, rot:p.rot, name:p.src.name, bandId:p.src.bandId, edges:{...p.src.edges}, origL:p.origL, origW:p.origW })) }));
-  _unplacedItems = unplaced;
+
+  // بناء نموذج المخطط
+  layout = sheets.map(s=>({
+    cuts:s.cuts,
+    pieces:s.placed.map(p=>({
+      id:nid(), x:p.x, y:p.y, l:p.l, w:p.w, rot:p.rot,
+      name:p.src.name, bandId:p.src.bandId, edges:{...p.src.edges},
+      origL:p.origL, origW:p.origW
+    }))
+  }));
+
   if(unplaced.length) toast(`⚠️ ${unplaced.length} قطعة أكبر من اللوح ولم تُوضع`);
   else if(sheets.length>qty) toast(`⚠️ تحتاج ${sheets.length} لوحاً وهو أكثر من المتاح (${qty})`);
   else toast(`✓ تم: ${sheets.length} لوح، ${items.length} قطعة`);
+
   renderResults();
   saveState();
 }
 
-function pieceBanding(p){ let cm=0; if(p.edges.t) cm+=p.origL; if(p.edges.b) cm+=p.origL; if(p.edges.l) cm+=p.origW; if(p.edges.r) cm+=p.origW; const m=cm/100; return { m, cost:m*bandById(p.bandId).price }; }
-function recomputeCuts(sheet){ const xs=new Set(), ys=new Set(); sheet.pieces.forEach(p=>{ const x1=Math.round(p.x*10)/10, x2=Math.round((p.x+p.l)*10)/10; const y1=Math.round(p.y*10)/10, y2=Math.round((p.y+p.w)*10)/10; if(x1>0.1) xs.add(x1); if(x2<settings.L-0.1) xs.add(x2); if(y1>0.1) ys.add(y1); if(y2<settings.W-0.1) ys.add(y2); }); return xs.size + ys.size; }
-function sheetStats(sheet){ const area=settings.L*settings.W; let used=0,m=0,cost=0; sheet.pieces.forEach(p=>{ used+=p.l*p.w; const b=pieceBanding(p); m+=b.m; cost+=b.cost; }); return { used, area, util:used/area*100, waste:(1-used/area)*100, meters:m, cost, count:sheet.pieces.length, cuts:recomputeCuts(sheet) }; }
-function sheetCutLength(sheet){ const xs=new Set(), ys=new Set(); sheet.pieces.forEach(p=>{ const x2=Math.round((p.x+p.l)*10)/10, y2=Math.round((p.y+p.w)*10)/10; if(x2<settings.L-0.1) xs.add(x2); if(y2<settings.W-0.1) ys.add(y2); }); return xs.size*settings.W + ys.size*settings.L; }
-function totals(){ let used=0,m=0,cost=0,cuts=0,count=0,cutLen=0; const byType={}; layout.forEach(sh=>sh.pieces.forEach(p=>{ used+=p.l*p.w; const b=pieceBanding(p); m+=b.m; cost+=b.cost; const t=bandById(p.bandId).name; byType[t]=byType[t]||{m:0,cost:0}; byType[t].m+=b.m; byType[t].cost+=b.cost; })); layout.forEach(sh=>{cuts+=recomputeCuts(sh);count+=sh.pieces.length;cutLen+=sheetCutLength(sh);}); const area=layout.length*settings.L*settings.W; return { sheets:layout.length, area, used, util:area?used/area*100:0, waste:area?(1-used/area)*100:0, meters:m, cost, cuts, count, cutLen, byType }; }
+/* ---------------- حساب الإحصائيات ---------------- */
+function pieceBanding(p){ // متر التلبيس وتكلفته لقطعة واحدة
+  let cm=0;
+  if(p.edges.t) cm+=p.origL; if(p.edges.b) cm+=p.origL;
+  if(p.edges.l) cm+=p.origW; if(p.edges.r) cm+=p.origW;
+  const m=cm/100; return { m, cost:m*bandById(p.bandId).price };
+}
+function recomputeCuts(sheet){ // تقدير عدد عمليات القص من حواف القطع (خطوط مستقيمة)
+  const xs=new Set(), ys=new Set();
+  sheet.pieces.forEach(p=>{
+    const x1=Math.round(p.x*10)/10, x2=Math.round((p.x+p.l)*10)/10;
+    const y1=Math.round(p.y*10)/10, y2=Math.round((p.y+p.w)*10)/10;
+    if(x1>0.1) xs.add(x1); if(x2<settings.L-0.1) xs.add(x2);
+    if(y1>0.1) ys.add(y1); if(y2<settings.W-0.1) ys.add(y2);
+  });
+  return xs.size + ys.size;
+}
+function sheetStats(sheet){
+  const area=settings.L*settings.W;
+  let used=0,m=0,cost=0;
+  sheet.pieces.forEach(p=>{ used+=p.l*p.w; const b=pieceBanding(p); m+=b.m; cost+=b.cost; });
+  return { used, area, util:used/area*100, waste:(1-used/area)*100, meters:m, cost, count:sheet.pieces.length, cuts:recomputeCuts(sheet) };
+}
+function sheetCutLength(sheet){ // تقدير طول القص من حواف القطع الداخلية
+  const xs=new Set(), ys=new Set();
+  sheet.pieces.forEach(p=>{
+    const x2=Math.round((p.x+p.l)*10)/10, y2=Math.round((p.y+p.w)*10)/10;
+    if(x2<settings.L-0.1) xs.add(x2);
+    if(y2<settings.W-0.1) ys.add(y2);
+  });
+  return xs.size*settings.W + ys.size*settings.L;
+}
+function totals(){
+  let used=0,m=0,cost=0,cuts=0,count=0,cutLen=0; const byType={};
+  layout.forEach(sh=>sh.pieces.forEach(p=>{
+    used+=p.l*p.w; const b=pieceBanding(p); m+=b.m; cost+=b.cost;
+    const t=bandById(p.bandId).name; byType[t]=byType[t]||{m:0,cost:0}; byType[t].m+=b.m; byType[t].cost+=b.cost;
+  }));
+  layout.forEach(sh=>{cuts+=recomputeCuts(sh);count+=sh.pieces.length;cutLen+=sheetCutLength(sh);});
+  const area=layout.length*settings.L*settings.W;
+  return { sheets:layout.length, area, used, util:area?used/area*100:0, waste:area?(1-used/area)*100:0,
+           meters:m, cost, cuts, count, cutLen, byType };
+}
 
-/* ---------------- عرض النتائج ---------------- */
+/* ---------------- رسم النتائج ---------------- */
 const fmtNum=n=>Number.isInteger(n)?n:Math.round(n*10)/10;
+const SHEET_TINTS=[['#efeaf6','#e4daee'],['#f6eaee','#f0dbe3'],['#f4f1e1','#eae3c9'],
+                   ['#e7f0ea','#d8ebdf'],['#e7eef1','#d8e7ec'],['#f1ece5','#e8e0d4']];
+function sheetTint(i){ return SHEET_TINTS[i%SHEET_TINTS.length]; }
 
+// حساب مناطق الهدر/الفائض بدقة (مستطيلات محاذية لحواف القطع تماماً)
 function recomputeWaste(sheet){
   const L=settings.L, W=settings.W;
   const cl=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -257,7 +349,10 @@ function recomputeWaste(sheet){
   if(nC<1||nR<1) return [];
   const occ=[], usedC=[];
   for(let r=0;r<nR;r++){ occ[r]=[]; usedC[r]=new Array(nC).fill(false);
-    for(let c=0;c<nC;c++){ const cx=(xs[c]+xs[c+1])/2, cy=(ys[r]+ys[r+1])/2; occ[r][c]=sheet.pieces.some(p=>cx>=p.x&&cx<=p.x+p.l&&cy>=p.y&&cy<=p.y+p.w); }
+    for(let c=0;c<nC;c++){
+      const cx=(xs[c]+xs[c+1])/2, cy=(ys[r]+ys[r+1])/2;
+      occ[r][c]=sheet.pieces.some(p=>cx>=p.x&&cx<=p.x+p.l&&cy>=p.y&&cy<=p.y+p.w);
+    }
   }
   const rects=[];
   for(let r=0;r<nR;r++) for(let c=0;c<nC;c++){
@@ -276,7 +371,24 @@ function buildSheetCanvas(sheet, idx, colorMap, interactive, count){
   count=count||1;
   const st=sheetStats(sheet);
   const block=document.createElement('div'); block.className='sheet-block';
-  block.innerHTML=`<div class="sheet-head"><h3>${count>1?`ألواح متطابقة <span class="sheet-mult">×${count}</span>`:`اللوح ${idx+1}`} <span class="dim-note">${settings.sheetName} · ${settings.L}×${settings.W} سم</span></h3><div class="sheet-meta"><span>القص: <b>${cutDirLabel(settings.cutDir)}</b></span><span>القطع: <b>${st.count}</b></span><span>القصّات: <b>${st.cuts}</b></span><span>الاستفادة: <b style="color:#16a34a">${st.util.toFixed(1)}%</b></span><span>الهدر: <b style="color:#dc2626">${st.waste.toFixed(1)}%</b></span><span>التلبيس: <b>${st.meters.toFixed(2)} م</b></span></div></div><div class="stage">${count>1?`<div class="mult-badge" title="عدد الألواح المتطابقة">*${count}</div>`:''}<div class="canvas-wrap"><div class="sheet-canvas" data-sheet="${idx}"></div></div><div class="ruler-y"><span>${fmtNum(settings.W)}</span></div><div class="ruler-x"><span>${fmtNum(settings.L)}</span></div></div>`;
+  block.innerHTML=`
+    <div class="sheet-head">
+      <h3>${count>1?`ألواح متطابقة <span class="sheet-mult">×${count}</span>`:`اللوح ${idx+1}`} <span class="dim-note">${settings.sheetName} · ${settings.L}×${settings.W} سم</span></h3>
+      <div class="sheet-meta">
+        <span>القص: <b>${cutDirLabel(settings.cutDir)}</b></span>
+        <span>القطع: <b>${st.count}</b></span>
+        <span>القصّات: <b>${st.cuts}</b></span>
+        <span>الاستفادة: <b style="color:#16a34a">${st.util.toFixed(1)}%</b></span>
+        <span>الهدر: <b style="color:#dc2626">${st.waste.toFixed(1)}%</b></span>
+        <span>التلبيس: <b>${st.meters.toFixed(2)} م</b></span>
+      </div>
+    </div>
+    <div class="stage">
+      ${count>1?`<div class="mult-badge" title="عدد الألواح المتطابقة">*${count}</div>`:''}
+      <div class="canvas-wrap"><div class="sheet-canvas" data-sheet="${idx}"></div></div>
+      <div class="ruler-y"><span>${fmtNum(settings.W)}</span></div>
+      <div class="ruler-x"><span>${fmtNum(settings.L)}</span></div>
+    </div>`;
   const canvas=block.querySelector('.sheet-canvas');
   canvas.style.direction='ltr';
   canvas._sheet=sheet; canvas._idx=idx; canvas._colorMap=colorMap; canvas._interactive=interactive;
@@ -287,8 +399,12 @@ function positionPieces(canvas, scale){
   const sheet=canvas._sheet, idx=canvas._idx;
   canvas.style.height=(settings.W*scale)+'px';
   canvas.innerHTML='';
+  // تدرّج لوني خفيف لكامل اللوح (حسب رقم اللوح) إذا كان التلوين مفعّلاً
+  const tint=sheetTint(idx);
   canvas.style.background = '#ffffff';
+  canvas.classList.remove('cut-length','cut-width');
   canvas.classList.add(settings.cutDir==='length'?'cut-length':'cut-width');
+  // مناطق الهدر/الفائض مع مقاساتها
   recomputeWaste(sheet).forEach(w=>{
     const wd=document.createElement('div'); wd.className='waste';
     wd.style.left=(w.x*scale)+'px'; wd.style.top=(w.y*scale)+'px';
@@ -296,6 +412,7 @@ function positionPieces(canvas, scale){
     wd.innerHTML=`<span class="wd-h">${fmtNum(w.w)}</span><span class="wd-v">${fmtNum(w.h)}</span>`;
     canvas.appendChild(wd);
   });
+  // القطع — الطول مكتوب على الحافة العلوية، العرض على الحافة اليسرى
   sheet.pieces.forEach((p,pi)=>{
     const el=document.createElement('div'); el.className='piece';
     el.style.left=(p.x*scale)+'px'; el.style.top=(p.y*scale)+'px';
@@ -303,7 +420,9 @@ function positionPieces(canvas, scale){
     el.style.background=palette[pi % palette.length];
     el.dataset.sheet=idx; el.dataset.pi=pi;
     const small=(p.l*scale<44||p.w*scale<26);
-    el.innerHTML=`<span class="dim-h">${fmtNum(p.l)}</span><span class="dim-v">${fmtNum(p.w)}</span>${small?'':`<span class="pname">${p.name}${p.rot?' ⟳':''}</span>`}`;
+    el.innerHTML=`<span class="dim-h">${fmtNum(p.l)}</span>
+                  <span class="dim-v">${fmtNum(p.w)}</span>
+                  ${small?'':`<span class="pname">${p.name}${p.rot?' ⟳':''}</span>`}`;
     const de=displayEdges(p);
     ['t','b','l','r'].forEach(s=>{ if(de[s]){ const bd=document.createElement('span'); bd.className='band '+s; el.appendChild(bd);} });
     if(canvas._interactive){ el.addEventListener('pointerdown',startDrag); }
@@ -312,8 +431,23 @@ function positionPieces(canvas, scale){
   markOverlaps(canvas);
 }
 
-function displayEdges(p){ const e=p.edges; if(!p.rot) return {t:e.t,b:e.b,l:e.l,r:e.r}; return { t:e.l, b:e.r, l:e.b, r:e.t }; }
-function markOverlaps(canvas){ const els=[...canvas.querySelectorAll('.piece')]; els.forEach(e=>e.classList.remove('overlap')); for(let i=0;i<els.length;i++)for(let j=i+1;j<els.length;j++){ const a=els[i].getBoundingClientRect(), b=els[j].getBoundingClientRect(); if(a.left<b.right-1&&a.right>b.left+1&&a.top<b.bottom-1&&a.bottom>b.top+1){ els[i].classList.add('overlap'); els[j].classList.add('overlap'); } } }
+function displayEdges(p){ // تحويل أطراف التلبيس لاتجاه العرض بعد التدوير
+  const e=p.edges;
+  if(!p.rot) return {t:e.t,b:e.b,l:e.l,r:e.r};
+  // تدوير 90°: العلوي/السفلي(طول) يصبحان يسار/يمين، واليسار/اليمين(عرض) يصبحان علوي/سفلي
+  return { t:e.l, b:e.r, l:e.b, r:e.t };
+}
+
+function markOverlaps(canvas){
+  const els=[...canvas.querySelectorAll('.piece')];
+  els.forEach(e=>e.classList.remove('overlap'));
+  for(let i=0;i<els.length;i++)for(let j=i+1;j<els.length;j++){
+    const a=els[i].getBoundingClientRect(), b=els[j].getBoundingClientRect();
+    if(a.left<b.right-1&&a.right>b.left+1&&a.top<b.bottom-1&&a.bottom>b.top+1){
+      els[i].classList.add('overlap'); els[j].classList.add('overlap');
+    }
+  }
+}
 
 let liveCanvases=[];
 function renderResults(){
@@ -321,329 +455,520 @@ function renderResults(){
   $('#statsBar').innerHTML=''; 
   if(!layout||!layout.length){ $('#emptyState').classList.remove('hidden'); $('#dragHint').classList.add('hidden'); return; }
   $('#emptyState').classList.add('hidden'); $('#dragHint').classList.remove('hidden');
+
   const t=totals();
   const stat=(l,v,cls='')=>`<div class="stat ${cls}"><div class="v">${v}</div><div class="l">${l}</div></div>`;
   const m2=(cm2)=>(cm2/10000).toLocaleString('en',{maximumFractionDigits:2});
-  const sheetsCost=t.sheets*(settings.sheetPrice||0); const cutCost=t.sheets*(settings.cutFee||0); const grand=sheetsCost+cutCost+t.cost;
-  $('#statsBar').innerHTML = (settings.planName?stat('مخطط العمل',settings.planName):'')+stat('الألواح المستخدمة',t.sheets+' × '+settings.L+'×'+settings.W)+stat('المساحة المستخدمة',m2(t.used)+' م² · '+t.util.toFixed(0)+'%','good')+stat('المساحة المهدورة',m2(t.area-t.used)+' م² · '+t.waste.toFixed(0)+'%','warn')+stat('إجمالي القصّات',t.cuts)+stat('طول القص (تقديري)',fmtNum(Math.round(t.cutLen))+' سم')+stat('حرف التلبيس',t.meters.toFixed(2)+' م')+stat('تكلفة الألواح','$'+sheetsCost.toFixed(2))+stat('أجور القص','$'+cutCost.toFixed(2))+stat('تكلفة التلبيس','$'+t.cost.toFixed(2))+stat('التكلفة الإجمالية','$'+grand.toFixed(2),'good');
+  const sheetsCost=t.sheets*(settings.sheetPrice||0);
+  const cutCost=t.sheets*(settings.cutFee||0);
+  const grand=sheetsCost+cutCost+t.cost;
+  $('#statsBar').innerHTML =
+    (settings.planName?stat('مخطط العمل',settings.planName):'')+
+    stat('الألواح المستخدمة',t.sheets+' × '+settings.L+'×'+settings.W)+
+    stat('المساحة المستخدمة',m2(t.used)+' م² · '+t.util.toFixed(0)+'%','good')+
+    stat('المساحة المهدورة',m2(t.area-t.used)+' م² · '+t.waste.toFixed(0)+'%','warn')+
+    stat('إجمالي القصّات',t.cuts)+
+    stat('طول القص (تقديري)',fmtNum(Math.round(t.cutLen))+' سم')+
+    stat('حرف التلبيس',t.meters.toFixed(2)+' م')+
+    stat('تكلفة الألواح','$'+sheetsCost.toFixed(2))+
+    stat('أجور القص','$'+cutCost.toFixed(2))+
+    stat('تكلفة التلبيس','$'+t.cost.toFixed(2))+
+    stat('التكلفة الإجمالية','$'+grand.toFixed(2),'good');
+
   const colorMap={};
   const groups=groupSheets();
   groups.forEach(g=>{ const {block,canvas}=buildSheetCanvas(g.sheet,g.idx,colorMap,true,g.count); area.appendChild(block); liveCanvases.push(canvas); });
+  // موضعة بعد القياس
   requestAnimationFrame(()=>liveCanvases.forEach(c=>positionPieces(c, c.clientWidth/settings.L)));
 }
+
 window.addEventListener('resize',()=>{ if(layout) liveCanvases.forEach(c=>c.isConnected&&positionPieces(c,c.clientWidth/settings.L)); });
 
-/* ---------------- السحب والإفلات ---------------- */
-const HOLD_MS=200, MOVE_TOL=9; let drag=null;
-function startDrag(e){ if(e.button && e.button!==0) return; const el=e.currentTarget; const canvas=el.parentElement; const r=el.getBoundingClientRect(); drag={ el, canvas, fromSheet:+canvas.dataset.sheet, pi:+el.dataset.pi, piece:layout[+canvas.dataset.sheet].pieces[+el.dataset.pi], offX:e.clientX-r.left, offY:e.clientY-r.top, w:r.width, h:r.height, startX:e.clientX, startY:e.clientY, lastX:e.clientX, lastY:e.clientY, lifted:false, pointerId:e.pointerId }; try{ el.setPointerCapture(e.pointerId); }catch(_){} el.classList.add('armed'); drag.timer=setTimeout(lift, HOLD_MS); document.addEventListener('pointermove',onDrag); document.addEventListener('pointerup',endDrag); document.addEventListener('pointercancel',cancelDrag); }
-function lift(){ if(!drag) return; drag.lifted=true; const el=drag.el; el.classList.remove('armed'); el.classList.add('lifting'); if(navigator.vibrate) try{ navigator.vibrate(25); }catch(_){} el.style.position='fixed'; el.style.margin='0'; el.style.width=drag.w+'px'; el.style.height=drag.h+'px'; moveFixed(drag.lastX,drag.lastY); highlightTarget(drag.lastX,drag.lastY); }
+/* ---------------- السحب والإفلات الاحترافي (ضغط مستمر) ---------------- */
+const HOLD_MS=200;      // مدة الضغط المستمر لرفع القطعة
+const MOVE_TOL=9;       // تحرّك مسموح قبل الرفع (يُعتبر تمريراً للصفحة)
+let drag=null;
+
+function startDrag(e){
+  if(e.button && e.button!==0) return;
+  const el=e.currentTarget;
+  const canvas=el.parentElement;
+  const r=el.getBoundingClientRect();
+  drag={ el, canvas, fromSheet:+canvas.dataset.sheet, pi:+el.dataset.pi,
+         piece:layout[+canvas.dataset.sheet].pieces[+el.dataset.pi],
+         offX:e.clientX-r.left, offY:e.clientY-r.top, w:r.width, h:r.height,
+         startX:e.clientX, startY:e.clientY, lastX:e.clientX, lastY:e.clientY,
+         lifted:false, pointerId:e.pointerId };
+  try{ el.setPointerCapture(e.pointerId); }catch(_){}
+  el.classList.add('armed');
+  drag.timer=setTimeout(lift, HOLD_MS);
+  document.addEventListener('pointermove',onDrag);
+  document.addEventListener('pointerup',endDrag);
+  document.addEventListener('pointercancel',cancelDrag);
+}
+
+function lift(){
+  if(!drag) return;
+  drag.lifted=true;
+  const el=drag.el;
+  el.classList.remove('armed'); el.classList.add('lifting');
+  if(navigator.vibrate) try{ navigator.vibrate(25); }catch(_){}
+  el.style.position='fixed'; el.style.margin='0';
+  el.style.width=drag.w+'px'; el.style.height=drag.h+'px';
+  moveFixed(drag.lastX,drag.lastY);
+  highlightTarget(drag.lastX,drag.lastY);
+}
+
 function moveFixed(x,y){ drag.el.style.left=(x-drag.offX)+'px'; drag.el.style.top=(y-drag.offY)+'px'; }
-function highlightTarget(x,y){ drag.el.style.pointerEvents='none'; const t=document.elementFromPoint(x,y); drag.el.style.pointerEvents=''; const tc=t?t.closest('.sheet-canvas'):null; liveCanvases.forEach(c=>c.classList.toggle('drop-target', c===tc)); }
-function onDrag(e){ if(!drag) return; drag.lastX=e.clientX; drag.lastY=e.clientY; if(!drag.lifted){ if(Math.hypot(e.clientX-drag.startX, e.clientY-drag.startY)>MOVE_TOL) cancelDrag(); return; } e.preventDefault(); moveFixed(e.clientX,e.clientY); highlightTarget(e.clientX,e.clientY); }
-function cancelDrag(){ if(!drag) return; clearTimeout(drag.timer); drag.el.classList.remove('armed','lifting'); document.removeEventListener('pointermove',onDrag); document.removeEventListener('pointerup',endDrag); document.removeEventListener('pointercancel',cancelDrag); drag=null; }
-function overlapsAny(sheetIdx, piece, x, y, exceptIdx){ const ps=layout[sheetIdx].pieces; for(let i=0;i<ps.length;i++){ if(i===exceptIdx) continue; const o=ps[i]; if(x < o.x+o.l && x+piece.l > o.x && y < o.y+o.w && y+piece.w > o.y) return true; } return false; }
-function findFreeSpot(sheetIdx, piece, wx, wy, exceptIdx){ if(!overlapsAny(sheetIdx,piece,wx,wy,exceptIdx)) return {x:wx,y:wy}; const step=2, maxX=settings.L-piece.l, maxY=settings.W-piece.w; let best=null, bestD=Infinity; for(let gy=0; gy<=maxY+0.001; gy+=step){ for(let gx=0; gx<=maxX+0.001; gx+=step){ if(!overlapsAny(sheetIdx,piece,gx,gy,exceptIdx)){ const d=(gx-wx)*(gx-wx)+(gy-wy)*(gy-wy); if(d<bestD){ bestD=d; best={x:gx,y:gy}; } } } } return best; }
-function magnetSnap(sheetIdx, piece, nx, ny, exceptIdx){ const ps=layout[sheetIdx].pieces, kerf=settings.kerf||0; const maxX=settings.L-piece.l, maxY=settings.W-piece.w; const cand=[]; const add=(x,y)=>{ x=Math.max(0,Math.min(x,maxX)); y=Math.max(0,Math.min(y,maxY)); cand.push({x,y}); }; add(0,0); add(maxX,0); add(0,maxY); add(maxX,maxY); ps.forEach((o,i)=>{ if(i===exceptIdx) return; const right=o.x+o.l+kerf, left=o.x-piece.l-kerf; const below=o.y+o.w+kerf, above=o.y-piece.w-kerf; const yTop=o.y, yBot=o.y+o.w-piece.w; const xLeft=o.x, xRight=o.x+o.l-piece.l; add(right,yTop); add(right,yBot); add(left,yTop); add(left,yBot); add(xLeft,below);add(xRight,below); add(xLeft,above);add(xRight,above); }); let best=null, bd=Infinity; for(const c of cand){ if(c.x<-0.01||c.x>maxX+0.01||c.y<-0.01||c.y>maxY+0.01) continue; if(overlapsAny(sheetIdx,piece,c.x,c.y,exceptIdx)) continue; const d=(c.x-nx)*(c.x-nx)+(c.y-ny)*(c.y-ny); if(d<bd){ bd=d; best=c; } } return best; }
-function endDrag(e){ if(!drag) return; clearTimeout(drag.timer); document.removeEventListener('pointermove',onDrag); document.removeEventListener('pointerup',endDrag); document.removeEventListener('pointercancel',cancelDrag); liveCanvases.forEach(c=>c.classList.remove('drop-target')); if(!drag.lifted){ drag.el.classList.remove('armed'); drag=null; return; } const el=drag.el, piece=drag.piece; el.style.pointerEvents='none'; const target=document.elementFromPoint(drag.lastX,drag.lastY); el.style.pointerEvents=''; const tCanvas=target?target.closest('.sheet-canvas'):null; if(tCanvas){ const toSheet=+tCanvas.dataset.sheet; if(piece.l>settings.L+0.01 || piece.w>settings.W+0.01){ toast('⚠️ القطعة أكبر من اللوح — رُفض الإفلات'); } else { const cr=tCanvas.getBoundingClientRect(); const scale=tCanvas.clientWidth/settings.L; let nx=(drag.lastX-cr.left-drag.offX)/scale; let ny=(drag.lastY-cr.top-drag.offY)/scale; nx=Math.max(0,Math.min(nx, settings.L-piece.l)); ny=Math.max(0,Math.min(ny, settings.W-piece.w)); const except = (toSheet===drag.fromSheet) ? drag.pi : -1; let pos = magnetSnap(toSheet, piece, nx, ny, except); if(!pos) pos = findFreeSpot(toSheet, piece, nx, ny, except); if(!pos){ toast('⚠️ لا يوجد مكان كافٍ في هذا اللوح'); } else { piece.x=Math.round(pos.x*10)/10; piece.y=Math.round(pos.y*10)/10; if(toSheet!==drag.fromSheet){ layout[drag.fromSheet].pieces.splice(drag.pi,1); layout[toSheet].pieces.push(piece); layout=layout.filter(s=>s.pieces.length>0); } } } } el.classList.remove('lifting'); el.style.position=''; el.style.pointerEvents=''; drag=null; refreshLive(); }
-function refreshLive(){ const scrollY=window.scrollY; renderResults(); window.scrollTo(0,scrollY); }
 
-/* ============================================================
-   📄 تصدير PDF باستخدام Canvas مباشر (بدون html2canvas)
-   ============================================================ */
+function highlightTarget(x,y){
+  drag.el.style.pointerEvents='none';
+  const t=document.elementFromPoint(x,y);
+  drag.el.style.pointerEvents='';
+  const tc=t?t.closest('.sheet-canvas'):null;
+  liveCanvases.forEach(c=>c.classList.toggle('drop-target', c===tc));
+}
 
-// دالة لرسم لوح واحد على Canvas
-function drawSheetOnCanvas(sheet, width, height, repeatCount) {
-    const scale = Math.min(200 / width, 150 / height); // مقياس مناسب
-    const canvasW = width * scale + 60; // مساحة إضافية للهوامش
-    const canvasH = height * scale + 60;
-    
-    const canvas = document.createElement('canvas');
-    canvas.width = canvasW * 2; // دقة عالية (×2)
-    canvas.height = canvasH * 2;
-    const ctx = canvas.getContext('2d');
-    ctx.scale(2, 2);
-    
-    // الخلفية البيضاء
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvasW, canvasH);
-    
-    // 1. رسم اللوح الأساسي
-    const margin = 20;
-    const x0 = margin;
-    const y0 = margin;
-    const sheetW = width * scale;
-    const sheetH = height * scale;
-    
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 0.5;
-    ctx.strokeRect(x0, y0, sheetW, sheetH);
-    
-    // 2. المناطق المهدورة (بيج)
-    const waste = recomputeWaste(sheet);
-    waste.forEach(w => {
-        const wx = x0 + w.x * scale;
-        const wy = y0 + w.y * scale;
-        const ww = w.w * scale;
-        const wh = w.h * scale;
-        ctx.fillStyle = '#f5f0dc';
-        ctx.globalAlpha = 0.6;
-        ctx.fillRect(wx, wy, ww, wh);
-        ctx.globalAlpha = 1;
-        ctx.strokeStyle = '#999999';
-        ctx.lineWidth = 0.3;
-        ctx.setLineDash([3, 3]);
-        ctx.strokeRect(wx, wy, ww, wh);
-        ctx.setLineDash([]);
-    });
-    
-    // 3. القطع المستخدمة (وردي)
-    sheet.pieces.forEach((p, i) => {
-        const px = x0 + p.x * scale;
-        const py = y0 + p.y * scale;
-        const pw = p.l * scale;
-        const ph = p.w * scale;
-        const color = palette[i % palette.length];
-        ctx.fillStyle = color;
-        ctx.globalAlpha = 0.8;
-        ctx.fillRect(px, py, pw, ph);
-        ctx.globalAlpha = 1;
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 0.5;
-        ctx.strokeRect(px, py, pw, ph);
-        
-        // خطوط أفقية داخل القطعة (hatch)
-        ctx.strokeStyle = '#cccccc';
-        ctx.lineWidth = 0.3;
-        for (let y = py + 3; y < py + ph - 3; y += 4) {
-            ctx.beginPath();
-            ctx.moveTo(px + 2, y);
-            ctx.lineTo(px + pw - 2, y);
-            ctx.stroke();
+function onDrag(e){
+  if(!drag) return;
+  drag.lastX=e.clientX; drag.lastY=e.clientY;
+  if(!drag.lifted){
+    if(Math.hypot(e.clientX-drag.startX, e.clientY-drag.startY)>MOVE_TOL) cancelDrag(); // تمرير الصفحة
+    return;
+  }
+  e.preventDefault();
+  moveFixed(e.clientX,e.clientY);
+  highlightTarget(e.clientX,e.clientY);
+}
+
+function cancelDrag(){
+  if(!drag) return;
+  clearTimeout(drag.timer);
+  drag.el.classList.remove('armed','lifting');
+  document.removeEventListener('pointermove',onDrag);
+  document.removeEventListener('pointerup',endDrag);
+  document.removeEventListener('pointercancel',cancelDrag);
+  drag=null;
+}
+
+// بحث عن أقرب موضع خالٍ لتجنّب التداخل
+function overlapsAny(sheetIdx, piece, x, y, exceptIdx){
+  const ps=layout[sheetIdx].pieces;
+  for(let i=0;i<ps.length;i++){
+    if(i===exceptIdx) continue;
+    const o=ps[i];
+    if(x < o.x+o.l && x+piece.l > o.x && y < o.y+o.w && y+piece.w > o.y) return true;
+  }
+  return false;
+}
+function findFreeSpot(sheetIdx, piece, wx, wy, exceptIdx){
+  if(!overlapsAny(sheetIdx,piece,wx,wy,exceptIdx)) return {x:wx,y:wy};
+  const step=2, maxX=settings.L-piece.l, maxY=settings.W-piece.w;
+  let best=null, bestD=Infinity;
+  for(let gy=0; gy<=maxY+0.001; gy+=step){
+    for(let gx=0; gx<=maxX+0.001; gx+=step){
+      if(!overlapsAny(sheetIdx,piece,gx,gy,exceptIdx)){
+        const d=(gx-wx)*(gx-wx)+(gy-wy)*(gy-wy);
+        if(d<bestD){ bestD=d; best={x:gx,y:gy}; }
+      }
+    }
+  }
+  return best; // قد يكون null إذا لا يوجد مكان
+}
+
+// التصاق مغناطيسي: ضع القطعة ملاصقة لحافة أقرب قطعة (أو حافة اللوح) بفاصل سُمك المنشار فقط
+function magnetSnap(sheetIdx, piece, nx, ny, exceptIdx){
+  const ps=layout[sheetIdx].pieces, kerf=settings.kerf||0;
+  const maxX=settings.L-piece.l, maxY=settings.W-piece.w;
+  const cand=[];
+  const add=(x,y)=>{
+    x=Math.max(0,Math.min(x,maxX)); y=Math.max(0,Math.min(y,maxY));
+    cand.push({x,y});
+  };
+  // زوايا/حواف اللوح
+  add(0,0); add(maxX,0); add(0,maxY); add(maxX,maxY);
+  // لكل قطعة موجودة: مواضع الالتصاق بجوانبها الأربعة مع محاذاة الحواف
+  ps.forEach((o,i)=>{ if(i===exceptIdx) return;
+    const right=o.x+o.l+kerf, left=o.x-piece.l-kerf;     // يمين/يسار الجار
+    const below=o.y+o.w+kerf, above=o.y-piece.w-kerf;     // أسفل/أعلى الجار
+    const yTop=o.y, yBot=o.y+o.w-piece.w;                 // محاذاة عمودية
+    const xLeft=o.x, xRight=o.x+o.l-piece.l;              // محاذاة أفقية
+    add(right,yTop); add(right,yBot);
+    add(left,yTop);  add(left,yBot);
+    add(xLeft,below);add(xRight,below);
+    add(xLeft,above);add(xRight,above);
+  });
+  // اختر الأقرب لنقطة الإفلات وغير المتداخل
+  let best=null, bd=Infinity;
+  for(const c of cand){
+    if(c.x<-0.01||c.x>maxX+0.01||c.y<-0.01||c.y>maxY+0.01) continue;
+    if(overlapsAny(sheetIdx,piece,c.x,c.y,exceptIdx)) continue;
+    const d=(c.x-nx)*(c.x-nx)+(c.y-ny)*(c.y-ny);
+    if(d<bd){ bd=d; best=c; }
+  }
+  return best;
+}
+
+function endDrag(e){
+  if(!drag) return;
+  clearTimeout(drag.timer);
+  document.removeEventListener('pointermove',onDrag);
+  document.removeEventListener('pointerup',endDrag);
+  document.removeEventListener('pointercancel',cancelDrag);
+  liveCanvases.forEach(c=>c.classList.remove('drop-target'));
+
+  if(!drag.lifted){ // كان مجرد لمسة
+    drag.el.classList.remove('armed'); drag=null; return;
+  }
+
+  const el=drag.el, piece=drag.piece;
+  el.style.pointerEvents='none';
+  const target=document.elementFromPoint(drag.lastX,drag.lastY);
+  el.style.pointerEvents='';
+  const tCanvas=target?target.closest('.sheet-canvas'):null;
+
+  if(tCanvas){
+    const toSheet=+tCanvas.dataset.sheet;
+    // 1) رفض القطعة الأكبر من اللوح
+    if(piece.l>settings.L+0.01 || piece.w>settings.W+0.01){
+      toast('⚠️ القطعة أكبر من اللوح — رُفض الإفلات');
+    } else {
+      const cr=tCanvas.getBoundingClientRect();
+      const scale=tCanvas.clientWidth/settings.L;
+      let nx=(drag.lastX-cr.left-drag.offX)/scale;
+      let ny=(drag.lastY-cr.top-drag.offY)/scale;
+      nx=Math.max(0,Math.min(nx, settings.L-piece.l));
+      ny=Math.max(0,Math.min(ny, settings.W-piece.w));
+      const except = (toSheet===drag.fromSheet) ? drag.pi : -1;
+      // التصاق مغناطيسي بحافة أقرب قطعة مع ترك فاصل سُمك المنشار فقط
+      let pos = magnetSnap(toSheet, piece, nx, ny, except);
+      if(!pos) pos = findFreeSpot(toSheet, piece, nx, ny, except);
+      if(!pos){
+        toast('⚠️ لا يوجد مكان كافٍ في هذا اللوح');
+      } else {
+        piece.x=Math.round(pos.x*10)/10; piece.y=Math.round(pos.y*10)/10;
+        if(toSheet!==drag.fromSheet){
+          // خصم من اللوح المصدر وإضافة للوح الهدف + حذف اللوح الفارغ
+          layout[drag.fromSheet].pieces.splice(drag.pi,1);
+          layout[toSheet].pieces.push(piece);
+          layout=layout.filter(s=>s.pieces.length>0);
         }
-        
-        // نص الأبعاد في المنتصف
-        ctx.fillStyle = '#333333';
-        ctx.font = 'bold 8px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(p.label, px + pw/2, py + ph/2);
-        
-        // أرقام الأبعاد الحمراء
-        ctx.fillStyle = '#cc3333';
-        ctx.font = '6px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'bottom';
-        ctx.fillText(fmtNum(p.l), px + pw/2, py - 1);
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(fmtNum(p.w), px - 1, py + ph/2);
-    });
-    
-    // 4. أبعاد اللوح الكلية (رمادي)
-    ctx.fillStyle = '#888888';
-    ctx.font = '8px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillText(fmtNum(width), x0 + sheetW/2, y0 + sheetH + 4);
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
+      }
+    }
+  }
+  el.classList.remove('lifting'); el.style.position=''; el.style.pointerEvents='';
+  drag=null;
+  refreshLive();
+}
+
+function refreshLive(){
+  const scrollY=window.scrollY;
+  renderResults();
+  window.scrollTo(0,scrollY);
+}
+
+/* ---------------- تصدير PDF ---------------- */
+/* ---------------- رسم المخطط على Canvas حقيقي (موثوق على كل الأجهزة عند تصدير PDF) ----------------
+   نرسم اللوح والقطع وحرف التلبيس ومناطق الهدر على عنصر <canvas> أصلي بدلاً من الاعتماد على
+   تحويل عناصر DOM المتراكبة (الذي قد يفشل على بعض المتصفحات/الجوال فتظهر الكتابة دون المخططات). */
+function _haloText(ctx,text,x,y,color,halo){
+  ctx.save();
+  ctx.lineJoin='round';
+  ctx.lineWidth=3; ctx.strokeStyle=halo||'#ffffff';
+  ctx.strokeText(text,x,y);
+  ctx.fillStyle=color||'#0f2233';
+  ctx.fillText(text,x,y);
+  ctx.restore();
+}
+function _roundRect(ctx,x,y,w,h,r){
+  r=Math.max(0,Math.min(r,w/2,h/2));
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+}
+// إشارة حرف التلبيس (التقشيط) الموحّدة: شريط رفيع بحواف دائرية بلون التطبيق
+function _band(ctx,x,y,w,h){
+  ctx.save(); ctx.fillStyle='#0f766e';
+  _roundRect(ctx,x,y,w,h,Math.min(w,h)/2); ctx.fill();
+  ctx.restore();
+}
+// تسمية بُعد بخلفية بيضاء (تبقى واضحة فوق أي شيء حتى حرف التلبيس)
+function _chip(ctx,text,cx,cy,vertical){
+  ctx.save();
+  ctx.font='700 10px Cairo, Arial, sans-serif';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  const tw=ctx.measureText(text).width, padX=3.5, padY=2, fh=11;
+  const bw=tw+padX*2, bh=fh+padY*2;
+  ctx.translate(cx,cy); if(vertical) ctx.rotate(-Math.PI/2);
+  ctx.fillStyle='rgba(255,255,255,.95)';
+  _roundRect(ctx,-bw/2,-bh/2,bw,bh,3); ctx.fill();
+  ctx.strokeStyle='rgba(15,34,51,.12)'; ctx.lineWidth=0.6;
+  _roundRect(ctx,-bw/2,-bh/2,bw,bh,3); ctx.stroke();
+  ctx.fillStyle='#0f2233'; ctx.fillText(text,0,0);
+  ctx.restore();
+}
+// خط أبعاد هندسي أفقي (مثل الصورة المرجعية): خط بأطراف + رقم مدوّر بخلفية بيضاء
+function _dimH(ctx,x1,x2,y,label){
+  ctx.save();
+  ctx.strokeStyle='#a8706f'; ctx.lineWidth=1; ctx.lineCap='butt';
+  ctx.beginPath(); ctx.moveTo(x1,y); ctx.lineTo(x2,y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x1,y-3.5); ctx.lineTo(x1,y+3.5); ctx.moveTo(x2,y-3.5); ctx.lineTo(x2,y+3.5); ctx.stroke();
+  ctx.font='800 9px Cairo, Arial, sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  const tw=ctx.measureText(label).width;
+  ctx.fillStyle='#ffffff'; ctx.fillRect((x1+x2)/2-tw/2-3, y-7, tw+6, 13);
+  ctx.fillStyle='#a8706f'; ctx.fillText(label,(x1+x2)/2, y);
+  ctx.restore();
+}
+// خط أبعاد هندسي عمودي (مثل الصورة المرجعية)
+function _dimV(ctx,x,y1,y2,label){
+  ctx.save();
+  ctx.strokeStyle='#a8706f'; ctx.lineWidth=1; ctx.lineCap='butt';
+  ctx.beginPath(); ctx.moveTo(x,y1); ctx.lineTo(x,y2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x-3.5,y1); ctx.lineTo(x+3.5,y1); ctx.moveTo(x-3.5,y2); ctx.lineTo(x+3.5,y2); ctx.stroke();
+  ctx.font='800 9px Cairo, Arial, sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  const tw=ctx.measureText(label).width;
+  ctx.translate(x,(y1+y2)/2); ctx.rotate(-Math.PI/2);
+  ctx.fillStyle='#ffffff'; ctx.fillRect(-tw/2-3,-7,tw+6,13);
+  ctx.fillStyle='#a8706f'; ctx.fillText(label,0,0);
+  ctx.restore();
+}
+function drawSheetToCanvasEl(sheet, idx, s){
+  // s = عدد البكسلات لكل سنتيمتر
+  const MR=26, MB=24; // هامش لرسم خطوط أبعاد اللوح الخام (يمين/أسفل) بنمط هندسي
+  const cv=document.createElement('canvas');
+  const Wpx=Math.max(1,Math.round(settings.L*s)), Hpx=Math.max(1,Math.round(settings.W*s));
+  const dpr=2;
+  cv.width=(Wpx+MR)*dpr; cv.height=(Hpx+MB)*dpr;
+  cv.style.width='100%'; cv.style.height='auto'; cv.style.display='block';
+  const ctx=cv.getContext('2d');
+  ctx.scale(dpr,dpr);
+  ctx.direction='ltr';
+  // خلفية + إطار اللوح
+  ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,Wpx+MR,Hpx+MB);
+  ctx.lineWidth=2; ctx.strokeStyle='#8a5e26'; ctx.strokeRect(1,1,Wpx-2,Hpx-2);
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  // مناطق الهدر
+  recomputeWaste(sheet).forEach(w=>{
+    const x=w.x*s,y=w.y*s,ww=w.w*s,hh=w.h*s;
+    if(ww<=0||hh<=0) return;
     ctx.save();
-    ctx.translate(x0 + sheetW + 4, y0 + sheetH/2);
-    ctx.rotate(-Math.PI/2);
-    ctx.fillText(fmtNum(height), 0, 0);
+    ctx.setLineDash([5,4]); ctx.lineWidth=1; ctx.strokeStyle='#cbd3dc';
+    ctx.strokeRect(x+0.5,y+0.5,ww-1,hh-1);
     ctx.restore();
-    
-    return canvas;
+    if(ww>22&&hh>14){
+      ctx.font='800 9px Cairo, Arial, sans-serif';
+      _haloText(ctx, fmtNum(w.w)+'', x+ww/2, y+7, '#475569', '#ffffff');
+      ctx.save(); ctx.translate(x+7, y+hh/2); ctx.rotate(-Math.PI/2);
+      _haloText(ctx, fmtNum(w.h)+'', 0, 0, '#475569', '#ffffff'); ctx.restore();
+    }
+  });
+  // القطع
+  sheet.pieces.forEach((p,pi)=>{
+    const x=p.x*s,y=p.y*s,pw=p.l*s,ph=p.w*s;
+    ctx.fillStyle=palette[pi % palette.length];
+    ctx.fillRect(x,y,pw,ph);
+    ctx.lineWidth=1; ctx.strokeStyle='rgba(0,0,0,.35)';
+    ctx.strokeRect(x+0.5,y+0.5,Math.max(0,pw-1),Math.max(0,ph-1));
+    const de=displayEdges(p); const ins=2.5, th=2.5, mg=Math.min(5, pw/4, ph/4);
+    if(de.t) _band(ctx, x+mg, y+ins, Math.max(2,pw-2*mg), th);
+    if(de.b) _band(ctx, x+mg, y+ph-ins-th, Math.max(2,pw-2*mg), th);
+    if(de.l) _band(ctx, x+ins, y+mg, th, Math.max(2,ph-2*mg));
+    if(de.r) _band(ctx, x+pw-ins-th, y+mg, th, Math.max(2,ph-2*mg));
+    // مقاسات القطعة: كل مقاس بجانب طرفه المناسب، خط رفيع واضح، بعيداً عن شريط تلبيس الـ PVC
+    ctx.font='700 8.5px Cairo, Arial, sans-serif';
+    if(pw>20) _haloText(ctx, fmtNum(p.l)+'', x+pw/2, y+11, '#0f2233', '#ffffff'); // الطول بجانب الحافة العلوية
+    if(ph>20){ ctx.save(); ctx.translate(x+11, y+ph/2); ctx.rotate(-Math.PI/2);
+      _haloText(ctx, fmtNum(p.w)+'', 0, 0, '#0f2233', '#ffffff'); ctx.restore(); } // العرض بجانب الحافة اليسرى
+    // العلامة (اسم/رمز القطعة) في وسط القطعة
+    const small=(pw<52||ph<32);
+    if(!small && p.name){
+      ctx.font='600 9px Cairo, Arial, sans-serif';
+      _haloText(ctx, p.name+(p.rot?' ⟳':''), x+pw/2, y+ph/2, '#475569', '#ffffff');
+    }
+  });
+  // أبعاد اللوح الخام بنمط هندسي: الطول أسفل، العرض يمين (مثل الصورة المرجعية)
+  ctx.save();
+  ctx.strokeStyle='#a8706f'; ctx.fillStyle='#a8706f'; ctx.lineWidth=1.2;
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  const by=Hpx+12;
+  ctx.beginPath(); ctx.moveTo(0,by); ctx.lineTo(Wpx,by); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0,by-4); ctx.lineTo(0,by+4); ctx.moveTo(Wpx,by-4); ctx.lineTo(Wpx,by+4); ctx.stroke();
+  ctx.font='700 12px Cairo, Arial, sans-serif';
+  const lt=fmtNum(settings.L)+''; const ltw=ctx.measureText(lt).width;
+  ctx.fillStyle='#ffffff'; ctx.fillRect(Wpx/2-ltw/2-5, by-8, ltw+10, 16);
+  ctx.fillStyle='#a8706f'; ctx.fillText(lt, Wpx/2, by);
+  const rx=Wpx+12;
+  ctx.beginPath(); ctx.moveTo(rx,0); ctx.lineTo(rx,Hpx); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(rx-4,0); ctx.lineTo(rx+4,0); ctx.moveTo(rx-4,Hpx); ctx.lineTo(rx+4,Hpx); ctx.stroke();
+  ctx.save(); ctx.translate(rx, Hpx/2); ctx.rotate(-Math.PI/2);
+  const wt=fmtNum(settings.W)+''; const wtw=ctx.measureText(wt).width;
+  ctx.fillStyle='#ffffff'; ctx.fillRect(-wtw/2-5,-8,wtw+10,16);
+  ctx.fillStyle='#a8706f'; ctx.fillText(wt,0,0); ctx.restore();
+  ctx.restore();
+  return cv;
 }
 
-// دالة لإنشاء صندوق المعلومات (Info Box) كنص لـ jsPDF
-function getInfoBoxText(sheet, count, stats) {
-    const usedArea = Math.round(stats.used);
-    const wasteArea = Math.round(stats.waste);
-    const utilPct = Math.round(stats.util);
-    const wastePct = Math.round(stats.waste);
-    const cuts = stats.cuts;
-    const cutLen = stats.cutLength;
-    const panels = stats.count;
-    const wastedPanels = _unplacedItems ? _unplacedItems.length : 0;
-    
-    let lines = [
-        `Stock sheet ${settings.L}×${settings.W}  Qty ${count}`,
-        `Used area ${usedArea}  ${utilPct}%`,
-        `Wasted area ${wasteArea}  ${wastePct}%`,
-        `Cuts ${cuts}`,
-        `Cut length ${cutLen}`,
-        `Panels ${panels}`,
-        `Wasted panels ${wastedPanels}`,
-        '',
-        'Panel Qty'
-    ];
-    
-    // إضافة أنواع القطع
-    const panelCounts = {};
-    sheet.pieces.forEach(p => {
-        const key = `${p.origL}×${p.origW}`;
-        panelCounts[key] = (panelCounts[key] || 0) + 1;
-    });
-    Object.entries(panelCounts).forEach(([size, qty]) => {
-        lines.push(`${size} ${qty}`);
-    });
-    
-    lines.push('');
-    lines.push('#  Panel  Cut  Result');
-    
-    sheet.pieces.forEach((p, i) => {
-        const num = i + 1;
-        const displayL = p.rot ? p.w : p.l;
-        const displayW = p.rot ? p.l : p.w;
-        let resultStr = '';
-        if (p.x > 0 && p.y === 0) resultStr = `x=${Math.round(p.x)}`;
-        else if (p.y > 0 && p.x === 0) resultStr = `y=${Math.round(p.y)}`;
-        else if (p.x > 0 && p.y > 0) resultStr = `x=${Math.round(p.x)} y=${Math.round(p.y)}`;
-        lines.push(`${num}  ${displayL}×${displayW}  ${resultStr}`);
-    });
-    
-    if (count > 1) {
-        lines.push(`x${count}`);
+async function doExportPDF(opts){
+  opts=opts||{summary:true,sheetData:true,cutOrder:true,banding:true,costs:true};
+  if(!layout||!layout.length){ toast('قم بالتحسين أولاً'); return; }
+  toast('جارٍ إنشاء ملف PDF…');
+  await ensurePdfLibs();
+  const LOGO=await logoDataUrl();
+  const t=totals(); const rep=$('#pdfReport'); rep.innerHTML='';
+  const sheetsCost=t.sheets*(settings.sheetPrice||0);
+  const cutCost=t.sheets*(settings.cutFee||0);
+  const grand=sheetsCost+cutCost+t.cost;
+  const colorMap={};
+
+  // صفحة الملخص الشامل (اختيارية)
+  if(opts.summary){
+    const summary=document.createElement('div'); summary.className='pdf-page';
+    let typeRows=Object.entries(t.byType).map(([k,v])=>`<tr><td>${k}</td><td>${v.m.toFixed(2)} م</td><td>$${v.cost.toFixed(2)}</td></tr>`).join('');
+    const costRows = opts.costs ? `
+      ${row('سعر اللوح الواحد', '$'+(settings.sheetPrice||0).toFixed(2))}
+      ${row('تكلفة الألواح ('+t.sheets+' لوح)', '<b>$'+sheetsCost.toFixed(2)+'</b>')}
+      ${row('أجرة قص اللوح ('+(settings.cutFee||0)+' $/لوح × '+t.sheets+' لوح)', '<b>$'+cutCost.toFixed(2)+'</b>')}
+      ${row('إجمالي تكلفة حرف التلبيس', '<b>$'+t.cost.toFixed(2)+'</b>')}
+      ${row('التكلفة الإجمالية للمشروع', '<b style="color:#16a34a;font-size:15px">$'+grand.toFixed(2)+'</b>')}` : '';
+    const bandingBlock = opts.banding ? `
+      <h3 style="color:#8a5e26;margin:16px 0 6px">تفصيل التلبيس حسب النوع</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <tr style="background:#f3efe8"><th style="padding:6px;text-align:right">النوع</th><th style="padding:6px;text-align:right">الأمتار</th><th style="padding:6px;text-align:right">التكلفة</th></tr>
+        ${typeRows}
+      </table>` : '';
+    summary.innerHTML=`
+      <div style="display:flex;align-items:center;gap:14px;border-bottom:3px solid #b5803c;padding-bottom:12px;margin-bottom:16px">
+        ${LOGO?`<img src="${LOGO}" style="height:60px">`:""}
+        <div><div style="font-size:26px;font-weight:800;color:#8a5e26">IQ Panel</div>
+        <div style="color:#64748b;font-size:13px">${settings.planName?('مخطط: '+settings.planName+' — '):''}تقرير مشروع القص — ${new Date().toLocaleString('ar-EG')}</div></div>
+      </div>
+      <h2 style="color:#8a5e26;font-size:18px;margin:0 0 10px">الإحصائية الشاملة</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:14px">
+        ${row('اللوح الخام', settings.sheetName+' — '+settings.L+' × '+settings.W+' سم')}
+        ${row('سُمك المنشار (الحرف)', settings.kerf+' سم')}
+        ${row('اتجاه القص', cutDirLabel(settings.cutDir))}
+        ${row('عدد الألواح المستخدمة', t.sheets+' لوح')}
+        ${row('إجمالي عدد القطع', t.count+' قطعة')}
+        ${row('إجمالي عمليات القص', t.cuts+' عملية')}
+        ${row('نسبة الاستفادة الكلية', '<b style="color:#16a34a">'+t.util.toFixed(2)+'%</b>')}
+        ${row('نسبة الهدر الكلية', '<b style="color:#dc2626">'+t.waste.toFixed(2)+'%</b>')}
+        ${row('إجمالي أمتار حرف التلبيس', '<b>'+t.meters.toFixed(2)+' متر</b>')}
+        ${costRows}
+      </table>
+      ${bandingBlock}`;
+    rep.appendChild(summary);
+  }
+
+  // صفحة لكل لوح: صورة المخطط على جنب، والبيانات كل نوع بسطر مستقل
+  groupSheets().forEach((g)=>{
+    const sh=g.sheet, i=g.idx, _cnt=g.count;
+    const st=sheetStats(sh);
+    const page=document.createElement('div'); page.className='pdf-page';
+    const _title=_cnt>1?`ألواح متطابقة × ${_cnt} (أرقام ${g.idxs.map(x=>x+1).join('، ')}) — ${settings.sheetName} ${settings.L}×${settings.W} سم`:`اللوح رقم ${i+1} — ${settings.sheetName} ${settings.L}×${settings.W} سم`;
+    page.innerHTML=`
+      <div style="border-bottom:2px solid #b5803c;padding-bottom:8px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+        <h2 style="color:#8a5e26;margin:0;font-size:18px">${_title}</h2>
+        ${LOGO?`<img src="${LOGO}" style="height:34px">`:""}
+      </div>`;
+    const wrap=document.createElement('div');
+    wrap.style.cssText='display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap';
+    const imgCol=document.createElement('div'); imgCol.style.cssText='flex:1 1 330px;min-width:280px';
+    const {block}=buildSheetCanvas(sh,i,colorMap,false,_cnt);
+    block.style.boxShadow='none'; block.style.border='none'; block.style.padding='0';
+    const _hd=block.querySelector('.sheet-head'); if(_hd) _hd.style.display='none';
+    block.querySelectorAll('.ruler-x,.ruler-y').forEach(r=>r.style.display='none');
+    const _stg=block.querySelector('.stage'); if(_stg) _stg.style.padding='0';
+    const _host=block.querySelector('.sheet-canvas');
+    _host.style.height='auto'; _host.style.overflow='visible'; _host.innerHTML='';
+    _host.appendChild(drawSheetToCanvasEl(sh,i,4));
+    imgCol.appendChild(block);
+    const dataCol=document.createElement('div'); dataCol.style.cssText='flex:0 1 230px;min-width:200px;font-size:13px';
+    let lines='';
+    if(opts.sheetData){
+      const L=(label,val)=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid #eee"><span style="color:#64748b">${label}</span><b>${val}</b></div>`;
+      lines += `<div style="font-weight:800;color:#8a5e26;margin-bottom:4px">بيانات اللوح ${_cnt>1?('(متطابق ×'+_cnt+')'):(i+1)}</div>`;
+      if(_cnt>1) lines += L('ألواح متطابقة', '×'+_cnt);
+      lines += L('اتجاه القص', cutDirLabel(settings.cutDir));
+      lines += L('عدد القطع', st.count);
+      lines += L('عمليات القص', st.cuts);
+      lines += L('الاستفادة', '<span style="color:#16a34a">'+st.util.toFixed(1)+'%</span>');
+      lines += L('الهدر', '<span style="color:#dc2626">'+st.waste.toFixed(1)+'%</span>');
+      lines += L('أمتار التلبيس', st.meters.toFixed(2)+' م');
+      if(opts.costs) lines += L('تكلفة التلبيس', '$'+st.cost.toFixed(2));
     }
-    
-    return lines;
+    dataCol.innerHTML=lines;
+    wrap.appendChild(imgCol); wrap.appendChild(dataCol);
+    page.appendChild(wrap);
+    if(opts.cutOrder){
+      const grp={}; sh.pieces.forEach(p=>{ const k=sizeKey(p); if(!grp[k]) grp[k]={l:(p.origL!=null?p.origL:p.l),w:(p.origW!=null?p.origW:p.w),name:p.name,n:0}; grp[k].n++; });
+      const order=Object.values(grp).map(g=>`<li>قص مقاس <b>${g.l}×${g.w}</b> سم${g.n>1?` <span style="color:#b5803c;font-weight:800">*${g.n}</span> (مكرّر ${g.n} مرات)`:''}${g.name?` — ${g.name}`:''}</li>`).join('');
+      const ord=document.createElement('div');
+      ord.style.cssText='font-size:13px;margin-top:12px';
+      ord.innerHTML=`<b style="color:#8a5e26">ترتيب عمليات القص:</b><ol style="margin:6px 24px 0 0;padding:0;line-height:1.9">${order}</ol>`;
+      page.appendChild(ord);
+    }
+    rep.appendChild(page);
+  });
+
+  // التحويل إلى PDF
+  const { jsPDF }=window.jspdf;
+  const pdf=new jsPDF('p','mm','a4');
+  const pw=210, ph=297, margin=8;
+  const pagesEls=rep.querySelectorAll('.pdf-page');
+  for(let i=0;i<pagesEls.length;i++){
+    const cv=await html2canvas(pagesEls[i],{scale:2,backgroundColor:'#ffffff',useCORS:true,allowTaint:false,imageTimeout:0});
+    const img=cv.toDataURL('image/jpeg',0.92);
+    const w=pw-margin*2; const h=cv.height*w/cv.width;
+    if(i>0) pdf.addPage();
+    let y=margin;
+    if(h<=ph-margin*2){ pdf.addImage(img,'JPEG',margin,y,w,h); }
+    else {
+      let remaining=h, sy=0; const pageH=ph-margin*2;
+      const ratio=cv.width/w;
+      while(remaining>0){
+        const sliceH=Math.min(pageH,remaining);
+        const sCanvas=document.createElement('canvas');
+        sCanvas.width=cv.width; sCanvas.height=sliceH*ratio;
+        sCanvas.getContext('2d').drawImage(cv,0,sy*ratio,cv.width,sliceH*ratio,0,0,cv.width,sliceH*ratio);
+        pdf.addImage(sCanvas.toDataURL('image/jpeg',0.92),'JPEG',margin,margin,w,sliceH);
+        remaining-=sliceH; sy+=sliceH; if(remaining>0)pdf.addPage();
+      }
+    }
+  }
+  const base=(opts.name||settings.planName||'IQ-Panel-مخطط-القص').toString().trim().replace(/[\\/:*?"<>|]+/g,'-')||'IQ-Panel';
+  const fname=base+'.pdf';
+  try{
+    const blob=pdf.output('blob');
+    const url=URL.createObjectURL(blob);
+    if(window._qpUrl) { try{ URL.revokeObjectURL(window._qpUrl); }catch(_){ } }
+    window._qpUrl=url;
+    try{ const a=document.createElement('a'); a.href=url; a.download=fname; document.body.appendChild(a); a.click(); a.remove(); }catch(_){}
+    openPdfModal(url, fname);
+    toast('✓ تم إنشاء ملف PDF');
+  }catch(err){
+    try{ pdf.save(fname); toast('✓ تم حفظ ملف PDF'); }
+    catch(e2){ toast('تعذّر إنشاء الملف: '+(e2.message||e2)); }
+  }
+  rep.innerHTML='';
 }
 
-// دالة التصدير الرئيسية
-async function doExportPDF(opts) {
-    opts = opts || {summary:true, sheetData:true, cutOrder:true, banding:true, costs:true};
-    if(!layout || !layout.length){ toast('قم بالتحسين أولاً'); return; }
-
-    toast('جارٍ إنشاء ملف PDF…');
-    await ensurePdfLibs();
-    const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF('p', 'mm', 'a4');
-    const pw = 210, ph = 297, margin = 10;
-    const pageWidth = pw - margin*2;
-    const pageHeight = ph - margin*2;
-
-    // مجموعات الألواح
-    const groups = groupSheets();
-    
-    // إحصائيات عامة
-    const t = totals();
-    const totalSheets = t.sheets;
-    const totalUsed = Math.round(t.used);
-    const totalWaste = Math.round(t.area - t.used);
-    const totalUtil = t.util;
-    const totalWastePct = t.waste;
-    const totalCuts = t.cuts;
-    const totalCutLen = Math.round(t.cutLen * 10) / 10;
-    const kerf = settings.kerf;
-
-    // صفحة الملخص (نصية باستخدام jsPDF)
-    pdf.addPage();
-    let y = margin + 20;
-    pdf.setFontSize(14);
-    pdf.setTextColor(0, 0, 0);
-    pdf.text(reverseText('ملخص المشروع'), margin, y);
-    y += 10;
-    pdf.setFontSize(10);
-    const summaryLines = [
-        `Used stock sheets ${totalSheets}`,
-        `Total used area ${totalUsed} ${Math.round(totalUtil)}%`,
-        `Total wasted area ${totalWaste} ${Math.round(totalWastePct)}%`,
-        `Total cuts ${totalCuts}`,
-        `Total cut length ${totalCutLen}`,
-        `Cut / blade / kerf thickness ${kerf}`
-    ];
-    summaryLines.forEach(line => {
-        pdf.text(reverseText(line), margin, y);
-        y += 6;
-    });
-
-    // صفحات الألواح
-    for (let gIdx = 0; gIdx < groups.length; gIdx++) {
-        const g = groups[gIdx];
-        const sh = g.sheet;
-        const count = g.count;
-        const st = sheetStats(sh);
-        const cutLen = sheetCutLength(sh);
-        const stats = { ...st, cutLength: cutLen };
-        
-        pdf.addPage();
-        
-        // رسم المخطط على Canvas
-        const canvas = drawSheetOnCanvas(sh, settings.L, settings.W, count);
-        const imgData = canvas.toDataURL('image/jpeg', 0.95);
-        
-        // إضافة الصورة إلى PDF (في النصف الأيسر)
-        const imgW = pageWidth * 0.6;
-        const imgH = canvas.height / (canvas.width / imgW);
-        pdf.addImage(imgData, 'JPEG', margin, margin, imgW, imgH);
-        
-        // كتابة البيانات بجانب الصورة (النصف الأيمن)
-        const textX = margin + imgW + 6;
-        let textY = margin + 4;
-        pdf.setFontSize(8);
-        pdf.setTextColor(0, 0, 0);
-        
-        const infoLines = getInfoBoxText(sh, count, stats);
-        infoLines.forEach(line => {
-            if (line.startsWith('x') && count > 1) {
-                pdf.setFontSize(10);
-                pdf.setTextColor(100, 100, 100);
-                pdf.text(reverseText(line), pageWidth - margin - 10, pageHeight - margin - 6);
-                return;
-            }
-            if (line === 'Panel Qty') {
-                pdf.setFontSize(8);
-                pdf.setTextColor(0, 0, 0);
-                pdf.setFont('helvetica', 'bold');
-                pdf.text(reverseText(line), textX, textY);
-                textY += 5;
-                pdf.setFont('helvetica', 'normal');
-                return;
-            }
-            if (line === '#  Panel  Cut  Result') {
-                pdf.setFontSize(8);
-                pdf.setTextColor(0, 0, 0);
-                pdf.setFont('helvetica', 'bold');
-                pdf.text(reverseText(line), textX, textY);
-                textY += 5;
-                pdf.setFont('helvetica', 'normal');
-                return;
-            }
-            if (line === '') {
-                textY += 3;
-                return;
-            }
-            pdf.text(reverseText(line), textX, textY);
-            textY += 4;
-        });
-        
-        // رقم الصفحة
-        pdf.setFontSize(8);
-        pdf.setTextColor(200, 0, 0);
-        const pageNum = pdf.internal.getNumberOfPages();
-        pdf.text(reverseText(`${pageNum}`), pw/2, ph - margin - 6, { align: 'center' });
-    }
-
-    // حفظ الملف
-    const base = (opts.name || settings.planName || 'IQ-Panel-مخطط-القص').replace(/[\\/:*?"<>|]/g,'-') || 'IQ-Panel';
-    const fname = base + '.pdf';
-    try {
-        pdf.save(fname);
-        toast('✓ تم حفظ الملف');
-    } catch (e) {
-        toast('❌ فشل الحفظ: ' + e.message);
-    }
-}
-
+// نافذة الخيارات قبل الحفظ: تعديل الاسم واختيار البيانات المُضمّنة
 function openPdfOptions(){
   if(!layout||!layout.length){ toast('قم بالتحسين أولاً'); return; }
   const nm=$('#pdfName'); if(nm) nm.value=(settings&&settings.planName)||($('#planName')&&$('#planName').value)||'';
   $('#pdfOptModal').classList.remove('hidden');
 }
+function openPdfModal(url, fname){
+  const m=$('#pdfModal');
+  $('#pdfFrame').src=url;
+  const dl=$('#pdfDownload'); dl.href=url; dl.setAttribute('download',fname);
+  $('#pdfOpen').href=url;
+  m.classList.remove('hidden');
+}
+function row(l,v){ return `<tr><td style="padding:6px;border-bottom:1px solid #eee;color:#64748b">${l}</td><td style="padding:6px;border-bottom:1px solid #eee;font-weight:700">${v}</td></tr>`; }
 
 function resetProject(){
-  if(!confirm('بدء مشروع جديد سيحذف كل البيانات الحالية. هل تريد المتابعة؟')) return;
+  if(!confirm('بدء مشروع جديد سيحذف كل البيانات الحالية (الاسم، الأنواع، القطع، الإعدادات والمخطط). هل تريد المتابعة؟')) return;
   try{ localStorage.removeItem(LS_KEY); }catch(_){}
   pieces=Array.from({length:10},()=>emptyPiece());
   sheetTypes=[{id:'s1',name:'لوح',l:null,w:null,qty:null,price:null}];
@@ -654,81 +979,24 @@ function resetProject(){
   const cf=$('#cutFee'); if(cf) cf.value='';
   const cd=$('#cutDir'); if(cd) cd.value='length';
   const ar=$('#allowRotate'); if(ar) ar.checked=false;
-  showExtra=false; applyExtraToggleUI();
+  showExtra=false; applyExtraToggleUI();   // إلغاء اختيار الخيارات الإضافية ليبدأ المشروع الجديد نظيفاً
   renderSheetTable(); renderPieceTable(); renderResults();
   window.scrollTo(0,0);
   toast('✓ تم بدء مشروع جديد');
 }
 
-async function checkVersion() {
-  try {
-    const response = await fetch(VERSION_CHECK_URL);
-    if (!response.ok) throw new Error('Network response was not ok');
-    const data = await response.json();
-    const remoteVersion = data.version;
-    const minRequired = data.minVersion || MIN_VERSION;
-    const verSpan = document.getElementById('appVersion');
-    if (verSpan) verSpan.textContent = APP_VERSION;
-    const compare = (v1, v2) => {
-      const parts1 = v1.split('.').map(Number);
-      const parts2 = v2.split('.').map(Number);
-      for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
-        const n1 = parts1[i] || 0;
-        const n2 = parts2[i] || 0;
-        if (n1 !== n2) return n1 - n2;
-      }
-      return 0;
-    };
-    if (compare(remoteVersion, APP_VERSION) > 0) {
-      const updater = document.getElementById('updateBanner');
-      if (updater) {
-        updater.classList.remove('hidden');
-        updater.querySelector('.update-version').textContent = remoteVersion;
-        updater.querySelector('.update-btn').addEventListener('click', () => {
-          if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistration().then(reg => {
-              if (reg) { reg.update().then(() => { window.location.reload(); }); } 
-              else { window.location.reload(); }
-            });
-          } else { window.location.reload(); }
-        });
-      }
-    } else {
-      document.getElementById('updateBanner')?.classList.add('hidden');
-    }
-    if (compare(APP_VERSION, minRequired) < 0) {
-      const blocker = document.getElementById('versionBlocker');
-      if (blocker) {
-        blocker.classList.remove('hidden');
-        blocker.querySelector('.required-version').textContent = minRequired;
-        document.body.style.pointerEvents = 'none';
-        blocker.style.pointerEvents = 'auto';
-        toast('⚠️ هذا الإصدار قديم، يرجى التحديث');
-      }
-    }
-  } catch (e) {
-    console.log('Version check failed, continuing offline.');
-    document.getElementById('updateBanner')?.classList.add('hidden');
-  }
-}
-
-function applyExtraToggleUI(){
-  const btn=document.getElementById('toggleExtra'); if(!btn) return;
-  btn.classList.toggle('on', showExtra);
-  btn.textContent = showExtra ? '⚙ إخفاء الخيارات الإضافية' : '⚙ خيارات إضافية';
-}
-const emptyPiece=()=>({id:nid(),name:'',l:null,w:null,qty:null,bandId:bandTypes[0]?.id,edges:{t:false,b:false,l:false,r:false}});
-
-// ربط الأحداث
+/* ---------------- ربط الأحداث ---------------- */
 $('#addBand').addEventListener('click',()=>{ bandTypes.push({id:nid(),name:'نوع جديد',price:0.5}); renderBandTable(); renderPieceTable(); });
 $('#addPiece').addEventListener('mousedown',e=>e.preventDefault());
 $('#addPiece').addEventListener('click',()=>{
   const id=nid();
   pieces.push({id,name:'',l:null,w:null,qty:null,bandId:bandTypes[0]?.id,edges:{t:false,b:false,l:false,r:false}});
   renderPieceTable();
+  // إبقاء لوحة المفاتيح مفتوحة: ننقل التركيز إلى حقل الطول للإدخال السريع
   const inp=document.querySelector(`#pieceTable tbody input[data-id="${id}"][data-f="l"]`);
   if(inp) inp.focus();
 });
+// إضافة عشرة صفوف دفعة واحدة لإدخال المقاسات بسرعة
 const btnAdd10=$('#addPiece10');
 if(btnAdd10){
   btnAdd10.addEventListener('mousedown',e=>e.preventDefault());
@@ -742,8 +1010,15 @@ if(btnAdd10){
     toast('✓ تمت إضافة ١٠ صفوف');
   });
 }
+// الزر الموحّد للخيارات الإضافية: يُختار لمرة واحدة ويُطبّق على كل القطع (السابقة والتالية)
 const btnExtra=$('#toggleExtra');
-if(btnExtra){ btnExtra.addEventListener('click',()=>{ showExtra=!showExtra; applyExtraToggleUI(); renderPieceTable(); }); }
+if(btnExtra){
+  btnExtra.addEventListener('click',()=>{
+    showExtra=!showExtra;
+    applyExtraToggleUI();
+    renderPieceTable();
+  });
+}
 applyExtraToggleUI();
 
 $('#btnNew').addEventListener('click',resetProject);
@@ -759,9 +1034,15 @@ const _pg=$('#pdfOptGo'); if(_pg) _pg.addEventListener('click',()=>{
   $('#pdfOptModal').classList.add('hidden');
   doExportPDF(opts);
 });
+$('#pdfClose').addEventListener('click',()=>{ $('#pdfModal').classList.add('hidden'); $('#pdfFrame').src='about:blank'; });
+$('#pdfPrint').addEventListener('click',()=>{ const f=$('#pdfFrame'); try{ f.contentWindow.focus(); f.contentWindow.print(); }catch(e){ toast('استخدم زر التنزيل بدل الطباعة'); } });
 $('#addSheet').addEventListener('click',()=>{ sheetTypes.push({id:nid(),name:'لوح',l:null,w:null,qty:null,price:null}); renderSheetTable(); });
 ['allowRotate','cutDir'].forEach(id=>$('#'+id).addEventListener('change',()=>{ if(layout) optimize(); }));
 
+// إنشاء قطعة فارغة جاهزة لكتابة المقاسات بسرعة
+const emptyPiece=()=>({id:nid(),name:'',l:null,w:null,qty:null,bandId:bandTypes[0]?.id,edges:{t:false,b:false,l:false,r:false}});
+// فتح 10 صفوف قطع فارغة عند بدء التطبيق (لإدخال المقاسات بسرعة دون تشتت)
+// استعادة آخر مشروع محفوظ (إن وُجد) قبل تهيئة الصفوف
 const _saved=loadState();
 if(!pieces.length){ for(let i=0;i<10;i++) pieces.push(emptyPiece()); }
 if(_saved){
@@ -771,10 +1052,12 @@ if(_saved){
   const ar=$('#allowRotate'); if(ar) ar.checked=!!_saved.allowRotate;
 }
 applyExtraToggleUI();
+
 renderSheetTable();
 renderBandTable();
 renderPieceTable();
 if(layout&&layout.length) renderResults();
+
+// حفظ تلقائي لأي تغيير (يبقى آخر مشروع محفوظاً حتى «مشروع جديد»)
 document.addEventListener('input', scheduleSave);
 document.addEventListener('change', scheduleSave);
-checkVersion();
