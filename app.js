@@ -14,7 +14,7 @@ let bandTypes = [
   { id: 'b0', name: 'بدون تلبيس', price: 0.00 },
 ];
 let pieces = [];
-let showExtra = false;   // زر موحّد: إظهار/إخفاء الخيارات الإضافية (الاسم/نوع الحرف/التلبيس) لكل القطع دفعة واحدة
+let showExtra = false;
 function applyExtraToggleUI(){
   const btn=document.getElementById('toggleExtra'); if(!btn) return;
   btn.classList.toggle('on', showExtra);
@@ -22,8 +22,8 @@ function applyExtraToggleUI(){
 }
 let sheetTypes = [ { id:'s1', name:'لوح', l:null, w:null, qty:null, price:null } ];
 let activeSheetId = 's1';
-let layout = null;       // نتيجة آخر تحسين
-let settings = null;     // إعدادات اللوح وقت التحسين
+let layout = null;
+let settings = null;
 let uid = 100;
 const nid = () => 'x' + (++uid);
 
@@ -33,12 +33,12 @@ function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.remove(
 function bandById(id){ return bandTypes.find(b=>b.id===id) || {name:'-',price:0}; }
 function colorForSize(l,w,map){ const k=`${l}x${w}`; if(!(k in map)) map[k]=palette[Object.keys(map).length%palette.length]; return map[k]; }
 
-/* ---------------- تحميل مكتبات الـ PDF عند الحاجة فقط (تسريع بدء التطبيق) ---------------- */
+/* ---------------- تحميل مكتبات الـ PDF عند الحاجة فقط ---------------- */
 let _pdfLibsP=null;
 function _loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=()=>rej(new Error('فشل تحميل '+src)); document.head.appendChild(s); }); }
 async function ensurePdfLibs(){ if(window.jspdf&&window.html2canvas) return; if(!_pdfLibsP){ _pdfLibsP=Promise.all([_loadScript('jspdf.umd.min.js'),_loadScript('html2canvas.min.js')]); } await _pdfLibsP; }
 
-/* ---------------- حفظ آخر مشروع تلقائياً (حتى الضغط على «مشروع جديد») ---------------- */
+/* ---------------- حفظ آخر مشروع تلقائياً ---------------- */
 const LS_KEY='iqpanel_project_v2';
 function _readInputs(){ return {
   planName:($('#planName')&&$('#planName').value)||'',
@@ -59,11 +59,11 @@ function loadState(){ try{ const raw=localStorage.getItem(LS_KEY); if(!raw) retu
   return d.inputs||{};
 }catch(_){ return null; } }
 
-/* ---------------- المقاسات المكررة: مفتاح المقاس وعدّ التكرارات ---------------- */
+/* ---------------- المقاسات المكررة ---------------- */
 function sizeKey(p){ const a=(p.origL!=null?p.origL:p.l), b=(p.origW!=null?p.origW:p.w); const mn=Math.min(a,b), mx=Math.max(a,b); return mn+'x'+mx; }
 function layoutSizeCounts(){ const m={}; (layout||[]).forEach(sh=>sh.pieces.forEach(p=>{ const k=sizeKey(p); m[k]=(m[k]||0)+1; })); return m; }
 
-/* ---------------- تجميع الألواح المتطابقة (رسم مخطط واحد + ×العدد) ---------------- */
+/* ---------------- تجميع الألواح المتطابقة ---------------- */
 function sheetFingerprint(sh){
   return sh.pieces.map(p=>[Math.round(p.x*10),Math.round(p.y*10),Math.round(p.l*10),Math.round(p.w*10),(p.rot?1:0),(p.bandId||''),(p.edges?(''+(!!p.edges.t)+(!!p.edges.b)+(!!p.edges.l)+(!!p.edges.r)):'')].join(','))
     .sort().join('|');
@@ -81,7 +81,7 @@ function groupSheets(){
 /* ---------------- وصف اتجاه القص ---------------- */
 function cutDirLabel(d){ return d==='length'?'طولي ‖':(d==='cross'?'عرضي ═':'حر ✲'); }
 
-/* شعار التطبيق كـ Data URL (يمنع "تلويث" الـ canvas ويضمن ظهوره في الـ PDF على كل الاستضافات) */
+/* شعار التطبيق كـ Data URL */
 async function logoDataUrl(){
   if(window._logoDU!==undefined) return window._logoDU;
   try{ const r=await fetch('logo.jpeg'); const bl=await r.blob();
@@ -146,7 +146,6 @@ function renderPieceTable(){
     const opts=bandTypes.map(b=>`<option value="${b.id}" ${b.id===p.bandId?'selected':''}>${b.name}</option>`).join('');
     const eb=(k,sym)=>`<button class="edge-btn ${p.edges[k]?'on':''}" data-id="${p.id}" data-e="${k}" title="${k}">${sym}</button>`;
 
-    // الصف الأساسي: الطول × العرض × العدد فقط (إدخال سريع دون تشتت)
     const tr=document.createElement('tr');
     tr.innerHTML=`
       <td><input type="number" min="1" value="${val(p.l)}" data-id="${p.id}" data-f="l"></td>
@@ -155,7 +154,6 @@ function renderPieceTable(){
       <td><button class="btn btn-danger" data-del="${p.id}">✕</button></td>`;
     tb.appendChild(tr);
 
-    // صف الخيارات الإضافية: يظهر لكل القطع فقط عند تفعيل الزر العلوي الموحّد (showExtra)
     if(showExtra){
       const tro=document.createElement('tr');
       tro.className='opt-row';
@@ -183,8 +181,6 @@ function renderPieceTable(){
     p[f]=['l','w','qty'].includes(f)?(e.target.value===''?null:parseFloat(e.target.value)):e.target.value;
   }));
   tb.querySelectorAll('.edge-btn').forEach(btn=>{
-    // التبديل على pointerdown مع منع السلوك الافتراضي حتى لا يُسحب التركيز من الحقل
-    // وبالتالي لا تُغلق لوحة المفاتيح عند اختيار حرف التلبيس (التقشيط)
     btn.addEventListener('pointerdown',e=>{
       e.preventDefault();
       const p=pieces.find(x=>x.id===btn.dataset.id); const k=btn.dataset.e;
@@ -192,13 +188,11 @@ function renderPieceTable(){
     });
   });
   tb.querySelectorAll('[data-del]').forEach(btn=>{
-    // منع سحب التركيز عند الضغط على زر الحذف (حتى لا تُغلق لوحة المفاتيح)
     btn.addEventListener('mousedown',e=>e.preventDefault());
     btn.addEventListener('click',e=>{
       const delId=e.currentTarget.dataset.del;
       const idx=pieces.findIndex(x=>x.id===delId);
       pieces=pieces.filter(x=>x.id!==delId); renderPieceTable();
-      // إبقاء لوحة المفاتيح مفتوحة: ننقل التركيز إلى اسم أقرب قطعة متبقية
       if(pieces.length){
         const ni=Math.min(idx, pieces.length-1);
         const inp=document.querySelector(`#pieceTable tbody input[data-id="${pieces[ni].id}"][data-f="l"]`);
@@ -217,7 +211,6 @@ function optimize(){
   if(!(L>0&&W>0)){ toast('أدخل أبعاد لوح صحيحة في جدول الأنواع'); return; }
   settings={L,W,qty,kerf,cutDir,allowRotate,colorize:false,sheetPrice:+at.price||0,sheetName:(at.name||'لوح'),cutFee,planName};
 
-  // توسيع القطع حسب العدد
   const items=[];
   pieces.forEach(p=>{ for(let i=0;i<(p.qty||0);i++) items.push({...p, _l:p.l, _w:p.w}); });
   if(!items.length){ toast('أضف قطعاً أولاً'); return; }
@@ -246,7 +239,6 @@ function optimize(){
       r1={x:best.x, y:best.y+pw+kerf, w:best.w, h:bottomH};
       r2={x:best.x+pl+kerf, y:best.y, w:rightW, h:pw};
     } else {
-      // حر: اختر التقسيم الذي يترك أكبر مستطيل فائض قابل للاستخدام
       const aR1={x:best.x+pl+kerf, y:best.y, w:rightW, h:best.h};
       const aR2={x:best.x, y:best.y+pw+kerf, w:pl, h:bottomH};
       const bR1={x:best.x, y:best.y+pw+kerf, w:best.w, h:bottomH};
@@ -270,7 +262,6 @@ function optimize(){
     if(!done) unplaced.push(it);
   }
 
-  // بناء نموذج المخطط
   layout = sheets.map(s=>({
     cuts:s.cuts,
     pieces:s.placed.map(p=>({
@@ -289,13 +280,13 @@ function optimize(){
 }
 
 /* ---------------- حساب الإحصائيات ---------------- */
-function pieceBanding(p){ // متر التلبيس وتكلفته لقطعة واحدة
+function pieceBanding(p){
   let cm=0;
   if(p.edges.t) cm+=p.origL; if(p.edges.b) cm+=p.origL;
   if(p.edges.l) cm+=p.origW; if(p.edges.r) cm+=p.origW;
   const m=cm/100; return { m, cost:m*bandById(p.bandId).price };
 }
-function recomputeCuts(sheet){ // تقدير عدد عمليات القص من حواف القطع (خطوط مستقيمة)
+function recomputeCuts(sheet){
   const xs=new Set(), ys=new Set();
   sheet.pieces.forEach(p=>{
     const x1=Math.round(p.x*10)/10, x2=Math.round((p.x+p.l)*10)/10;
@@ -311,7 +302,7 @@ function sheetStats(sheet){
   sheet.pieces.forEach(p=>{ used+=p.l*p.w; const b=pieceBanding(p); m+=b.m; cost+=b.cost; });
   return { used, area, util:used/area*100, waste:(1-used/area)*100, meters:m, cost, count:sheet.pieces.length, cuts:recomputeCuts(sheet) };
 }
-function sheetCutLength(sheet){ // تقدير طول القص من حواف القطع الداخلية
+function sheetCutLength(sheet){
   const xs=new Set(), ys=new Set();
   sheet.pieces.forEach(p=>{
     const x2=Math.round((p.x+p.l)*10)/10, y2=Math.round((p.y+p.w)*10)/10;
@@ -338,7 +329,6 @@ const SHEET_TINTS=[['#efeaf6','#e4daee'],['#f6eaee','#f0dbe3'],['#f4f1e1','#eae3
                    ['#e7f0ea','#d8ebdf'],['#e7eef1','#d8e7ec'],['#f1ece5','#e8e0d4']];
 function sheetTint(i){ return SHEET_TINTS[i%SHEET_TINTS.length]; }
 
-// حساب مناطق الهدر/الفائض بدقة (مستطيلات محاذية لحواف القطع تماماً)
 function recomputeWaste(sheet){
   const L=settings.L, W=settings.W;
   const cl=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -399,12 +389,10 @@ function positionPieces(canvas, scale){
   const sheet=canvas._sheet, idx=canvas._idx;
   canvas.style.height=(settings.W*scale)+'px';
   canvas.innerHTML='';
-  // تدرّج لوني خفيف لكامل اللوح (حسب رقم اللوح) إذا كان التلوين مفعّلاً
   const tint=sheetTint(idx);
   canvas.style.background = '#ffffff';
   canvas.classList.remove('cut-length','cut-width');
   canvas.classList.add(settings.cutDir==='length'?'cut-length':'cut-width');
-  // مناطق الهدر/الفائض مع مقاساتها
   recomputeWaste(sheet).forEach(w=>{
     const wd=document.createElement('div'); wd.className='waste';
     wd.style.left=(w.x*scale)+'px'; wd.style.top=(w.y*scale)+'px';
@@ -412,7 +400,6 @@ function positionPieces(canvas, scale){
     wd.innerHTML=`<span class="wd-h">${fmtNum(w.w)}</span><span class="wd-v">${fmtNum(w.h)}</span>`;
     canvas.appendChild(wd);
   });
-  // القطع — الطول مكتوب على الحافة العلوية، العرض على الحافة اليسرى
   sheet.pieces.forEach((p,pi)=>{
     const el=document.createElement('div'); el.className='piece';
     el.style.left=(p.x*scale)+'px'; el.style.top=(p.y*scale)+'px';
@@ -431,10 +418,9 @@ function positionPieces(canvas, scale){
   markOverlaps(canvas);
 }
 
-function displayEdges(p){ // تحويل أطراف التلبيس لاتجاه العرض بعد التدوير
+function displayEdges(p){
   const e=p.edges;
   if(!p.rot) return {t:e.t,b:e.b,l:e.l,r:e.r};
-  // تدوير 90°: العلوي/السفلي(طول) يصبحان يسار/يمين، واليسار/اليمين(عرض) يصبحان علوي/سفلي
   return { t:e.l, b:e.r, l:e.b, r:e.t };
 }
 
@@ -478,15 +464,14 @@ function renderResults(){
   const colorMap={};
   const groups=groupSheets();
   groups.forEach(g=>{ const {block,canvas}=buildSheetCanvas(g.sheet,g.idx,colorMap,true,g.count); area.appendChild(block); liveCanvases.push(canvas); });
-  // موضعة بعد القياس
   requestAnimationFrame(()=>liveCanvases.forEach(c=>positionPieces(c, c.clientWidth/settings.L)));
 }
 
 window.addEventListener('resize',()=>{ if(layout) liveCanvases.forEach(c=>c.isConnected&&positionPieces(c,c.clientWidth/settings.L)); });
 
-/* ---------------- السحب والإفلات الاحترافي (ضغط مستمر) ---------------- */
-const HOLD_MS=200;      // مدة الضغط المستمر لرفع القطعة
-const MOVE_TOL=9;       // تحرّك مسموح قبل الرفع (يُعتبر تمريراً للصفحة)
+/* ---------------- السحب والإفلات الاحترافي ---------------- */
+const HOLD_MS=200;
+const MOVE_TOL=9;
 let drag=null;
 
 function startDrag(e){
@@ -533,7 +518,7 @@ function onDrag(e){
   if(!drag) return;
   drag.lastX=e.clientX; drag.lastY=e.clientY;
   if(!drag.lifted){
-    if(Math.hypot(e.clientX-drag.startX, e.clientY-drag.startY)>MOVE_TOL) cancelDrag(); // تمرير الصفحة
+    if(Math.hypot(e.clientX-drag.startX, e.clientY-drag.startY)>MOVE_TOL) cancelDrag();
     return;
   }
   e.preventDefault();
@@ -551,7 +536,6 @@ function cancelDrag(){
   drag=null;
 }
 
-// بحث عن أقرب موضع خالٍ لتجنّب التداخل
 function overlapsAny(sheetIdx, piece, x, y, exceptIdx){
   const ps=layout[sheetIdx].pieces;
   for(let i=0;i<ps.length;i++){
@@ -573,10 +557,9 @@ function findFreeSpot(sheetIdx, piece, wx, wy, exceptIdx){
       }
     }
   }
-  return best; // قد يكون null إذا لا يوجد مكان
+  return best;
 }
 
-// التصاق مغناطيسي: ضع القطعة ملاصقة لحافة أقرب قطعة (أو حافة اللوح) بفاصل سُمك المنشار فقط
 function magnetSnap(sheetIdx, piece, nx, ny, exceptIdx){
   const ps=layout[sheetIdx].pieces, kerf=settings.kerf||0;
   const maxX=settings.L-piece.l, maxY=settings.W-piece.w;
@@ -585,20 +568,17 @@ function magnetSnap(sheetIdx, piece, nx, ny, exceptIdx){
     x=Math.max(0,Math.min(x,maxX)); y=Math.max(0,Math.min(y,maxY));
     cand.push({x,y});
   };
-  // زوايا/حواف اللوح
   add(0,0); add(maxX,0); add(0,maxY); add(maxX,maxY);
-  // لكل قطعة موجودة: مواضع الالتصاق بجوانبها الأربعة مع محاذاة الحواف
   ps.forEach((o,i)=>{ if(i===exceptIdx) return;
-    const right=o.x+o.l+kerf, left=o.x-piece.l-kerf;     // يمين/يسار الجار
-    const below=o.y+o.w+kerf, above=o.y-piece.w-kerf;     // أسفل/أعلى الجار
-    const yTop=o.y, yBot=o.y+o.w-piece.w;                 // محاذاة عمودية
-    const xLeft=o.x, xRight=o.x+o.l-piece.l;              // محاذاة أفقية
+    const right=o.x+o.l+kerf, left=o.x-piece.l-kerf;
+    const below=o.y+o.w+kerf, above=o.y-piece.w-kerf;
+    const yTop=o.y, yBot=o.y+o.w-piece.w;
+    const xLeft=o.x, xRight=o.x+o.l-piece.l;
     add(right,yTop); add(right,yBot);
     add(left,yTop);  add(left,yBot);
     add(xLeft,below);add(xRight,below);
     add(xLeft,above);add(xRight,above);
   });
-  // اختر الأقرب لنقطة الإفلات وغير المتداخل
   let best=null, bd=Infinity;
   for(const c of cand){
     if(c.x<-0.01||c.x>maxX+0.01||c.y<-0.01||c.y>maxY+0.01) continue;
@@ -617,7 +597,7 @@ function endDrag(e){
   document.removeEventListener('pointercancel',cancelDrag);
   liveCanvases.forEach(c=>c.classList.remove('drop-target'));
 
-  if(!drag.lifted){ // كان مجرد لمسة
+  if(!drag.lifted){
     drag.el.classList.remove('armed'); drag=null; return;
   }
 
@@ -629,7 +609,6 @@ function endDrag(e){
 
   if(tCanvas){
     const toSheet=+tCanvas.dataset.sheet;
-    // 1) رفض القطعة الأكبر من اللوح
     if(piece.l>settings.L+0.01 || piece.w>settings.W+0.01){
       toast('⚠️ القطعة أكبر من اللوح — رُفض الإفلات');
     } else {
@@ -640,7 +619,6 @@ function endDrag(e){
       nx=Math.max(0,Math.min(nx, settings.L-piece.l));
       ny=Math.max(0,Math.min(ny, settings.W-piece.w));
       const except = (toSheet===drag.fromSheet) ? drag.pi : -1;
-      // التصاق مغناطيسي بحافة أقرب قطعة مع ترك فاصل سُمك المنشار فقط
       let pos = magnetSnap(toSheet, piece, nx, ny, except);
       if(!pos) pos = findFreeSpot(toSheet, piece, nx, ny, except);
       if(!pos){
@@ -648,7 +626,6 @@ function endDrag(e){
       } else {
         piece.x=Math.round(pos.x*10)/10; piece.y=Math.round(pos.y*10)/10;
         if(toSheet!==drag.fromSheet){
-          // خصم من اللوح المصدر وإضافة للوح الهدف + حذف اللوح الفارغ
           layout[drag.fromSheet].pieces.splice(drag.pi,1);
           layout[toSheet].pieces.push(piece);
           layout=layout.filter(s=>s.pieces.length>0);
@@ -667,10 +644,7 @@ function refreshLive(){
   window.scrollTo(0,scrollY);
 }
 
-/* ---------------- تصدير PDF ---------------- */
-/* ---------------- رسم المخطط على Canvas حقيقي (موثوق على كل الأجهزة عند تصدير PDF) ----------------
-   نرسم اللوح والقطع وحرف التلبيس ومناطق الهدر على عنصر <canvas> أصلي بدلاً من الاعتماد على
-   تحويل عناصر DOM المتراكبة (الذي قد يفشل على بعض المتصفحات/الجوال فتظهر الكتابة دون المخططات). */
+/* ---------------- رسم المخطط على Canvas حقيقي ---------------- */
 function _haloText(ctx,text,x,y,color,halo){
   ctx.save();
   ctx.lineJoin='round';
@@ -686,13 +660,11 @@ function _roundRect(ctx,x,y,w,h,r){
   ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
   ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
 }
-// إشارة حرف التلبيس (التقشيط) الموحّدة: شريط رفيع بحواف دائرية بلون التطبيق
 function _band(ctx,x,y,w,h){
   ctx.save(); ctx.fillStyle='#0f766e';
   _roundRect(ctx,x,y,w,h,Math.min(w,h)/2); ctx.fill();
   ctx.restore();
 }
-// تسمية بُعد بخلفية بيضاء (تبقى واضحة فوق أي شيء حتى حرف التلبيس)
 function _chip(ctx,text,cx,cy,vertical){
   ctx.save();
   ctx.font='700 10px Cairo, Arial, sans-serif';
@@ -707,7 +679,6 @@ function _chip(ctx,text,cx,cy,vertical){
   ctx.fillStyle='#0f2233'; ctx.fillText(text,0,0);
   ctx.restore();
 }
-// خط أبعاد هندسي أفقي (مثل الصورة المرجعية): خط بأطراف + رقم مدوّر بخلفية بيضاء
 function _dimH(ctx,x1,x2,y,label){
   ctx.save();
   ctx.strokeStyle='#a8706f'; ctx.lineWidth=1; ctx.lineCap='butt';
@@ -719,7 +690,6 @@ function _dimH(ctx,x1,x2,y,label){
   ctx.fillStyle='#a8706f'; ctx.fillText(label,(x1+x2)/2, y);
   ctx.restore();
 }
-// خط أبعاد هندسي عمودي (مثل الصورة المرجعية)
 function _dimV(ctx,x,y1,y2,label){
   ctx.save();
   ctx.strokeStyle='#a8706f'; ctx.lineWidth=1; ctx.lineCap='butt';
@@ -733,8 +703,7 @@ function _dimV(ctx,x,y1,y2,label){
   ctx.restore();
 }
 function drawSheetToCanvasEl(sheet, idx, s){
-  // s = عدد البكسلات لكل سنتيمتر
-  const MR=26, MB=24; // هامش لرسم خطوط أبعاد اللوح الخام (يمين/أسفل) بنمط هندسي
+  const MR=26, MB=24;
   const cv=document.createElement('canvas');
   const Wpx=Math.max(1,Math.round(settings.L*s)), Hpx=Math.max(1,Math.round(settings.W*s));
   const dpr=2;
@@ -743,11 +712,9 @@ function drawSheetToCanvasEl(sheet, idx, s){
   const ctx=cv.getContext('2d');
   ctx.scale(dpr,dpr);
   ctx.direction='ltr';
-  // خلفية + إطار اللوح
   ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,Wpx+MR,Hpx+MB);
   ctx.lineWidth=2; ctx.strokeStyle='#8a5e26'; ctx.strokeRect(1,1,Wpx-2,Hpx-2);
   ctx.textAlign='center'; ctx.textBaseline='middle';
-  // مناطق الهدر
   recomputeWaste(sheet).forEach(w=>{
     const x=w.x*s,y=w.y*s,ww=w.w*s,hh=w.h*s;
     if(ww<=0||hh<=0) return;
@@ -762,7 +729,6 @@ function drawSheetToCanvasEl(sheet, idx, s){
       _haloText(ctx, fmtNum(w.h)+'', 0, 0, '#475569', '#ffffff'); ctx.restore();
     }
   });
-  // القطع
   sheet.pieces.forEach((p,pi)=>{
     const x=p.x*s,y=p.y*s,pw=p.l*s,ph=p.w*s;
     ctx.fillStyle=palette[pi % palette.length];
@@ -774,19 +740,16 @@ function drawSheetToCanvasEl(sheet, idx, s){
     if(de.b) _band(ctx, x+mg, y+ph-ins-th, Math.max(2,pw-2*mg), th);
     if(de.l) _band(ctx, x+ins, y+mg, th, Math.max(2,ph-2*mg));
     if(de.r) _band(ctx, x+pw-ins-th, y+mg, th, Math.max(2,ph-2*mg));
-    // مقاسات القطعة: كل مقاس بجانب طرفه المناسب، خط رفيع واضح، بعيداً عن شريط تلبيس الـ PVC
     ctx.font='700 8.5px Cairo, Arial, sans-serif';
-    if(pw>20) _haloText(ctx, fmtNum(p.l)+'', x+pw/2, y+11, '#0f2233', '#ffffff'); // الطول بجانب الحافة العلوية
+    if(pw>20) _haloText(ctx, fmtNum(p.l)+'', x+pw/2, y+11, '#0f2233', '#ffffff');
     if(ph>20){ ctx.save(); ctx.translate(x+11, y+ph/2); ctx.rotate(-Math.PI/2);
-      _haloText(ctx, fmtNum(p.w)+'', 0, 0, '#0f2233', '#ffffff'); ctx.restore(); } // العرض بجانب الحافة اليسرى
-    // العلامة (اسم/رمز القطعة) في وسط القطعة
+      _haloText(ctx, fmtNum(p.w)+'', 0, 0, '#0f2233', '#ffffff'); ctx.restore(); }
     const small=(pw<52||ph<32);
     if(!small && p.name){
       ctx.font='600 9px Cairo, Arial, sans-serif';
       _haloText(ctx, p.name+(p.rot?' ⟳':''), x+pw/2, y+ph/2, '#475569', '#ffffff');
     }
   });
-  // أبعاد اللوح الخام بنمط هندسي: الطول أسفل، العرض يمين (مثل الصورة المرجعية)
   ctx.save();
   ctx.strokeStyle='#a8706f'; ctx.fillStyle='#a8706f'; ctx.lineWidth=1.2;
   ctx.textAlign='center'; ctx.textBaseline='middle';
@@ -808,6 +771,7 @@ function drawSheetToCanvasEl(sheet, idx, s){
   return cv;
 }
 
+/* ---------------- تصدير PDF (تصميم أنيق بأسلوب Cutlist Optimizer) ---------------- */
 async function doExportPDF(opts){
   opts=opts||{summary:true,sheetData:true,cutOrder:true,banding:true,costs:true};
   if(!layout||!layout.length){ toast('قم بالتحسين أولاً'); return; }
@@ -819,94 +783,158 @@ async function doExportPDF(opts){
   const cutCost=t.sheets*(settings.cutFee||0);
   const grand=sheetsCost+cutCost+t.cost;
   const colorMap={};
+  const today=new Date().toLocaleDateString('ar-EG',{year:'numeric',month:'long',day:'numeric'});
+  const m2=(cm2)=>(cm2/10000).toLocaleString('en',{maximumFractionDigits:2});
 
-  // صفحة الملخص الشامل (اختيارية)
-  if(opts.summary){
-    const summary=document.createElement('div'); summary.className='pdf-page';
-    let typeRows=Object.entries(t.byType).map(([k,v])=>`<tr><td>${k}</td><td>${v.m.toFixed(2)} م</td><td>$${v.cost.toFixed(2)}</td></tr>`).join('');
-    const costRows = opts.costs ? `
-      ${row('سعر اللوح الواحد', '$'+(settings.sheetPrice||0).toFixed(2))}
-      ${row('تكلفة الألواح ('+t.sheets+' لوح)', '<b>$'+sheetsCost.toFixed(2)+'</b>')}
-      ${row('أجرة قص اللوح ('+(settings.cutFee||0)+' $/لوح × '+t.sheets+' لوح)', '<b>$'+cutCost.toFixed(2)+'</b>')}
-      ${row('إجمالي تكلفة حرف التلبيس', '<b>$'+t.cost.toFixed(2)+'</b>')}
-      ${row('التكلفة الإجمالية للمشروع', '<b style="color:#16a34a;font-size:15px">$'+grand.toFixed(2)+'</b>')}` : '';
-    const bandingBlock = opts.banding ? `
-      <h3 style="color:#8a5e26;margin:16px 0 6px">تفصيل التلبيس حسب النوع</h3>
-      <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <tr style="background:#f3efe8"><th style="padding:6px;text-align:right">النوع</th><th style="padding:6px;text-align:right">الأمتار</th><th style="padding:6px;text-align:right">التكلفة</th></tr>
-        ${typeRows}
-      </table>` : '';
-    summary.innerHTML=`
-      <div style="display:flex;align-items:center;gap:14px;border-bottom:3px solid #b5803c;padding-bottom:12px;margin-bottom:16px">
-        ${LOGO?`<img src="${LOGO}" style="height:60px">`:""}
-        <div><div style="font-size:26px;font-weight:800;color:#8a5e26">IQ Panel</div>
-        <div style="color:#64748b;font-size:13px">${settings.planName?('مخطط: '+settings.planName+' — '):''}تقرير مشروع القص — ${new Date().toLocaleString('ar-EG')}</div></div>
+  const headerHTML=(subtitle)=>`
+    <div class="rpt-head">
+      ${LOGO?`<img src="${LOGO}" class="rpt-logo">`:''}
+      <div class="rpt-head-txt">
+        <div class="rpt-brand">IQ Panel</div>
+        <div class="rpt-sub">${subtitle}</div>
       </div>
-      <h2 style="color:#8a5e26;font-size:18px;margin:0 0 10px">الإحصائية الشاملة</h2>
-      <table style="width:100%;border-collapse:collapse;font-size:14px">
-        ${row('اللوح الخام', settings.sheetName+' — '+settings.L+' × '+settings.W+' سم')}
-        ${row('سُمك المنشار (الحرف)', settings.kerf+' سم')}
-        ${row('اتجاه القص', cutDirLabel(settings.cutDir))}
-        ${row('عدد الألواح المستخدمة', t.sheets+' لوح')}
-        ${row('إجمالي عدد القطع', t.count+' قطعة')}
-        ${row('إجمالي عمليات القص', t.cuts+' عملية')}
-        ${row('نسبة الاستفادة الكلية', '<b style="color:#16a34a">'+t.util.toFixed(2)+'%</b>')}
-        ${row('نسبة الهدر الكلية', '<b style="color:#dc2626">'+t.waste.toFixed(2)+'%</b>')}
-        ${row('إجمالي أمتار حرف التلبيس', '<b>'+t.meters.toFixed(2)+' متر</b>')}
-        ${costRows}
+      <div class="rpt-date">${today}</div>
+    </div>`;
+
+  // صفحة الملخص الشامل
+  if(opts.summary){
+    const summary=document.createElement('div'); summary.className='pdf-page rpt';
+    const card=(label,val,cls='')=>`
+      <div class="rpt-card ${cls}">
+        <div class="rpt-card-v">${val}</div>
+        <div class="rpt-card-l">${label}</div>
+      </div>`;
+    const cards=`
+      <div class="rpt-cards">
+        ${card('الألواح المستخدمة', t.sheets)}
+        ${card('إجمالي القطع', t.count)}
+        ${card('عمليات القص', t.cuts)}
+        ${card('الاستفادة', t.util.toFixed(1)+'%','ok')}
+        ${card('الهدر', t.waste.toFixed(1)+'%','warn')}
+        ${card('حرف التلبيس', t.meters.toFixed(1)+' م')}
+      </div>`;
+
+    let typeRows=Object.entries(t.byType).map(([k,v],i)=>
+      `<tr class="${i%2?'alt':''}"><td>${k}</td><td>${v.m.toFixed(2)} م</td><td>$${v.cost.toFixed(2)}</td></tr>`).join('');
+    const bandingBlock = opts.banding && typeRows ? `
+      <h3 class="rpt-h">تفصيل التلبيس حسب النوع</h3>
+      <table class="rpt-table">
+        <thead><tr><th>النوع</th><th>الأمتار</th><th>التكلفة</th></tr></thead>
+        <tbody>${typeRows}</tbody>
+      </table>` : '';
+
+    const costsBlock = opts.costs ? `
+      <h3 class="rpt-h">التكاليف</h3>
+      <table class="rpt-table rpt-costs">
+        <tbody>
+          ${rrow('سعر اللوح الواحد', '$'+(settings.sheetPrice||0).toFixed(2))}
+          ${rrow('تكلفة الألواح ('+t.sheets+' لوح)', '$'+sheetsCost.toFixed(2))}
+          ${rrow('أجور القص ('+t.sheets+' لوح)', '$'+cutCost.toFixed(2))}
+          ${rrow('تكلفة حرف التلبيس', '$'+t.cost.toFixed(2))}
+          <tr class="rpt-grand"><td>التكلفة الإجمالية للمشروع</td><td>$${grand.toFixed(2)}</td></tr>
+        </tbody>
+      </table>` : '';
+
+    summary.innerHTML=`
+      ${headerHTML(settings.planName?('مشروع: '+settings.planName):'تقرير مشروع القص')}
+      ${cards}
+      <h3 class="rpt-h">تفاصيل المشروع</h3>
+      <table class="rpt-table rpt-details">
+        <tbody>
+          ${rrow('اللوح الخام', settings.sheetName+' — '+settings.L+' × '+settings.W+' سم')}
+          ${rrow('المساحة الكلية', m2(t.area)+' م²')}
+          ${rrow('المساحة المستخدمة', m2(t.used)+' م²')}
+          ${rrow('سُمك المنشار (الحرف)', settings.kerf+' سم')}
+          ${rrow('اتجاه القص', cutDirLabel(settings.cutDir))}
+        </tbody>
       </table>
-      ${bandingBlock}`;
+      ${bandingBlock}
+      ${costsBlock}`;
     rep.appendChild(summary);
   }
 
-  // صفحة لكل لوح: صورة المخطط على جنب، والبيانات كل نوع بسطر مستقل
+  // صفحة لكل لوح
   groupSheets().forEach((g)=>{
     const sh=g.sheet, i=g.idx, _cnt=g.count;
     const st=sheetStats(sh);
-    const page=document.createElement('div'); page.className='pdf-page';
-    const _title=_cnt>1?`ألواح متطابقة × ${_cnt} (أرقام ${g.idxs.map(x=>x+1).join('، ')}) — ${settings.sheetName} ${settings.L}×${settings.W} سم`:`اللوح رقم ${i+1} — ${settings.sheetName} ${settings.L}×${settings.W} سم`;
-    page.innerHTML=`
-      <div style="border-bottom:2px solid #b5803c;padding-bottom:8px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
-        <h2 style="color:#8a5e26;margin:0;font-size:18px">${_title}</h2>
-        ${LOGO?`<img src="${LOGO}" style="height:34px">`:""}
-      </div>`;
-    const wrap=document.createElement('div');
-    wrap.style.cssText='display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap';
-    const imgCol=document.createElement('div'); imgCol.style.cssText='flex:1 1 330px;min-width:280px';
+    const page=document.createElement('div'); page.className='pdf-page rpt';
+    const _title=_cnt>1
+      ? `ألواح متطابقة ×${_cnt} (أرقام ${g.idxs.map(x=>x+1).join('، ')})`
+      : `اللوح رقم ${i+1}`;
+
+    page.innerHTML = headerHTML(_title+' — '+settings.sheetName+' '+settings.L+'×'+settings.W+' سم');
+
+    const info=document.createElement('div');
+    info.className='rpt-sheet-info';
+    info.innerHTML=`
+      <span><b>${st.count}</b> قطعة</span>
+      <span><b>${st.cuts}</b> قصّة</span>
+      <span class="ok">استفادة <b>${st.util.toFixed(1)}%</b></span>
+      <span class="warn">هدر <b>${st.waste.toFixed(1)}%</b></span>
+      <span>تلبيس <b>${st.meters.toFixed(2)} م</b></span>
+      ${_cnt>1?`<span class="mult">×${_cnt} ألواح</span>`:''}`;
+    page.appendChild(info);
+
+    const wrap=document.createElement('div'); wrap.className='rpt-layout';
+
+    const imgCol=document.createElement('div'); imgCol.className='rpt-img-col';
     const {block}=buildSheetCanvas(sh,i,colorMap,false,_cnt);
-    block.style.boxShadow='none'; block.style.border='none'; block.style.padding='0';
+    block.style.cssText='box-shadow:none;border:none;padding:0;background:transparent';
     const _hd=block.querySelector('.sheet-head'); if(_hd) _hd.style.display='none';
     block.querySelectorAll('.ruler-x,.ruler-y').forEach(r=>r.style.display='none');
     const _stg=block.querySelector('.stage'); if(_stg) _stg.style.padding='0';
     const _host=block.querySelector('.sheet-canvas');
     _host.style.height='auto'; _host.style.overflow='visible'; _host.innerHTML='';
-    _host.appendChild(drawSheetToCanvasEl(sh,i,4));
+    _host.appendChild(drawSheetToCanvasEl(sh,i,5));
     imgCol.appendChild(block);
-    const dataCol=document.createElement('div'); dataCol.style.cssText='flex:0 1 230px;min-width:200px;font-size:13px';
-    let lines='';
-    if(opts.sheetData){
-      const L=(label,val)=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid #eee"><span style="color:#64748b">${label}</span><b>${val}</b></div>`;
-      lines += `<div style="font-weight:800;color:#8a5e26;margin-bottom:4px">بيانات اللوح ${_cnt>1?('(متطابق ×'+_cnt+')'):(i+1)}</div>`;
-      if(_cnt>1) lines += L('ألواح متطابقة', '×'+_cnt);
-      lines += L('اتجاه القص', cutDirLabel(settings.cutDir));
-      lines += L('عدد القطع', st.count);
-      lines += L('عمليات القص', st.cuts);
-      lines += L('الاستفادة', '<span style="color:#16a34a">'+st.util.toFixed(1)+'%</span>');
-      lines += L('الهدر', '<span style="color:#dc2626">'+st.waste.toFixed(1)+'%</span>');
-      lines += L('أمتار التلبيس', st.meters.toFixed(2)+' م');
-      if(opts.costs) lines += L('تكلفة التلبيس', '$'+st.cost.toFixed(2));
+
+    const dataCol=document.createElement('div'); dataCol.className='rpt-data-col';
+
+    if(opts.cutOrder){
+      const grp={};
+      sh.pieces.forEach(p=>{
+        const k=sizeKey(p);
+        if(!grp[k]) grp[k]={
+          l:(p.origL!=null?p.origL:p.l), w:(p.origW!=null?p.origW:p.w),
+          name:p.name||'', band:bandById(p.bandId).name, n:0
+        };
+        grp[k].n++;
+      });
+      let rows=Object.values(grp).map((g,idx)=>`
+        <tr class="${idx%2?'alt':''}">
+          <td><b>${g.l}×${g.w}</b></td>
+          <td class="c">${g.n}</td>
+          <td>${g.name||'—'}</td>
+          <td class="sm">${g.band}</td>
+        </tr>`).join('');
+      dataCol.innerHTML=`
+        <h3 class="rpt-h rpt-h-sm">قائمة القطع</h3>
+        <table class="rpt-table rpt-pieces">
+          <thead><tr><th>المقاس (سم)</th><th class="c">العدد</th><th>الاسم</th><th>التلبيس</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
     }
-    dataCol.innerHTML=lines;
+
+    if(opts.sheetData){
+      const L=(label,val)=>`<div class="rpt-kv"><span>${label}</span><b>${val}</b></div>`;
+      const det=document.createElement('div');
+      det.innerHTML=`
+        <h3 class="rpt-h rpt-h-sm">بيانات اللوح</h3>
+        <div class="rpt-kv-box">
+          ${_cnt>1?L('ألواح متطابقة','×'+_cnt):''}
+          ${L('اتجاه القص', cutDirLabel(settings.cutDir))}
+          ${L('عدد القطع', st.count)}
+          ${L('عمليات القص', st.cuts)}
+          ${L('الاستفادة','<span class="okc">'+st.util.toFixed(1)+'%</span>')}
+          ${L('الهدر','<span class="warnc">'+st.waste.toFixed(1)+'%</span>')}
+          ${L('أمتار التلبيس', st.meters.toFixed(2)+' م')}
+          ${opts.costs?L('تكلفة التلبيس','$'+st.cost.toFixed(2)):''}
+        </div>`;
+      dataCol.appendChild(det);
+    }
+
     wrap.appendChild(imgCol); wrap.appendChild(dataCol);
     page.appendChild(wrap);
-    if(opts.cutOrder){
-      const grp={}; sh.pieces.forEach(p=>{ const k=sizeKey(p); if(!grp[k]) grp[k]={l:(p.origL!=null?p.origL:p.l),w:(p.origW!=null?p.origW:p.w),name:p.name,n:0}; grp[k].n++; });
-      const order=Object.values(grp).map(g=>`<li>قص مقاس <b>${g.l}×${g.w}</b> سم${g.n>1?` <span style="color:#b5803c;font-weight:800">*${g.n}</span> (مكرّر ${g.n} مرات)`:''}${g.name?` — ${g.name}`:''}</li>`).join('');
-      const ord=document.createElement('div');
-      ord.style.cssText='font-size:13px;margin-top:12px';
-      ord.innerHTML=`<b style="color:#8a5e26">ترتيب عمليات القص:</b><ol style="margin:6px 24px 0 0;padding:0;line-height:1.9">${order}</ol>`;
-      page.appendChild(ord);
-    }
     rep.appendChild(page);
   });
 
@@ -940,7 +968,7 @@ async function doExportPDF(opts){
   try{
     const blob=pdf.output('blob');
     const url=URL.createObjectURL(blob);
-    if(window._qpUrl) { try{ URL.revokeObjectURL(window._qpUrl); }catch(_){ } }
+    if(window._qpUrl){ try{ URL.revokeObjectURL(window._qpUrl); }catch(_){ } }
     window._qpUrl=url;
     try{ const a=document.createElement('a'); a.href=url; a.download=fname; document.body.appendChild(a); a.click(); a.remove(); }catch(_){}
     openPdfModal(url, fname);
@@ -952,7 +980,7 @@ async function doExportPDF(opts){
   rep.innerHTML='';
 }
 
-// نافذة الخيارات قبل الحفظ: تعديل الاسم واختيار البيانات المُضمّنة
+// نافذة الخيارات قبل الحفظ
 function openPdfOptions(){
   if(!layout||!layout.length){ toast('قم بالتحسين أولاً'); return; }
   const nm=$('#pdfName'); if(nm) nm.value=(settings&&settings.planName)||($('#planName')&&$('#planName').value)||'';
@@ -966,6 +994,7 @@ function openPdfModal(url, fname){
   m.classList.remove('hidden');
 }
 function row(l,v){ return `<tr><td style="padding:6px;border-bottom:1px solid #eee;color:#64748b">${l}</td><td style="padding:6px;border-bottom:1px solid #eee;font-weight:700">${v}</td></tr>`; }
+function rrow(l,v){ return `<tr><td>${l}</td><td class="rpt-val">${v}</td></tr>`; }
 
 function resetProject(){
   if(!confirm('بدء مشروع جديد سيحذف كل البيانات الحالية (الاسم، الأنواع، القطع، الإعدادات والمخطط). هل تريد المتابعة؟')) return;
@@ -979,7 +1008,7 @@ function resetProject(){
   const cf=$('#cutFee'); if(cf) cf.value='';
   const cd=$('#cutDir'); if(cd) cd.value='length';
   const ar=$('#allowRotate'); if(ar) ar.checked=false;
-  showExtra=false; applyExtraToggleUI();   // إلغاء اختيار الخيارات الإضافية ليبدأ المشروع الجديد نظيفاً
+  showExtra=false; applyExtraToggleUI();
   renderSheetTable(); renderPieceTable(); renderResults();
   window.scrollTo(0,0);
   toast('✓ تم بدء مشروع جديد');
@@ -992,11 +1021,9 @@ $('#addPiece').addEventListener('click',()=>{
   const id=nid();
   pieces.push({id,name:'',l:null,w:null,qty:null,bandId:bandTypes[0]?.id,edges:{t:false,b:false,l:false,r:false}});
   renderPieceTable();
-  // إبقاء لوحة المفاتيح مفتوحة: ننقل التركيز إلى حقل الطول للإدخال السريع
   const inp=document.querySelector(`#pieceTable tbody input[data-id="${id}"][data-f="l"]`);
   if(inp) inp.focus();
 });
-// إضافة عشرة صفوف دفعة واحدة لإدخال المقاسات بسرعة
 const btnAdd10=$('#addPiece10');
 if(btnAdd10){
   btnAdd10.addEventListener('mousedown',e=>e.preventDefault());
@@ -1010,7 +1037,6 @@ if(btnAdd10){
     toast('✓ تمت إضافة ١٠ صفوف');
   });
 }
-// الزر الموحّد للخيارات الإضافية: يُختار لمرة واحدة ويُطبّق على كل القطع (السابقة والتالية)
 const btnExtra=$('#toggleExtra');
 if(btnExtra){
   btnExtra.addEventListener('click',()=>{
@@ -1039,10 +1065,7 @@ $('#pdfPrint').addEventListener('click',()=>{ const f=$('#pdfFrame'); try{ f.con
 $('#addSheet').addEventListener('click',()=>{ sheetTypes.push({id:nid(),name:'لوح',l:null,w:null,qty:null,price:null}); renderSheetTable(); });
 ['allowRotate','cutDir'].forEach(id=>$('#'+id).addEventListener('change',()=>{ if(layout) optimize(); }));
 
-// إنشاء قطعة فارغة جاهزة لكتابة المقاسات بسرعة
 const emptyPiece=()=>({id:nid(),name:'',l:null,w:null,qty:null,bandId:bandTypes[0]?.id,edges:{t:false,b:false,l:false,r:false}});
-// فتح 10 صفوف قطع فارغة عند بدء التطبيق (لإدخال المقاسات بسرعة دون تشتت)
-// استعادة آخر مشروع محفوظ (إن وُجد) قبل تهيئة الصفوف
 const _saved=loadState();
 if(!pieces.length){ for(let i=0;i<10;i++) pieces.push(emptyPiece()); }
 if(_saved){
@@ -1058,6 +1081,5 @@ renderBandTable();
 renderPieceTable();
 if(layout&&layout.length) renderResults();
 
-// حفظ تلقائي لأي تغيير (يبقى آخر مشروع محفوظاً حتى «مشروع جديد»)
 document.addEventListener('input', scheduleSave);
 document.addEventListener('change', scheduleSave);
