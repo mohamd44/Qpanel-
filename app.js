@@ -68,7 +68,7 @@ function _readInputs(){ return {
   kerf:($('#kerf')&&$('#kerf').value)||'',
   cutFee:($('#cutFee')&&$('#cutFee').value)||'',
   cutDir:($('#cutDir')&&$('#cutDir').value)||'length',
-  allowRotate:($('#allowRotate')&&$('#allowRotate').checked)||false
+  allowRotate: false // ملغى نهائياً
 }; }
 function saveState(){ try{ localStorage.setItem(LS_KEY, JSON.stringify({pieces,sheetTypes,bandTypes,activeSheetId,showExtra,layout,settings,uid,inputs:_readInputs()})); }catch(_){} }
 let _saveT=null; function scheduleSave(){ clearTimeout(_saveT); _saveT=setTimeout(saveState,400); }
@@ -229,7 +229,7 @@ function renderPieceTable(){
 function optimize(){
   const at=sheetTypes.find(s=>s.id===activeSheetId)||sheetTypes[0];
   const L=+at.l, W=+at.w, qty=+at.qty||0;
-  const kerf=+$('#kerf').value||0, cutDir=$('#cutDir').value, allowRotate=$('#allowRotate').checked;
+  const kerf=+$('#kerf').value||0, cutDir=$('#cutDir').value, allowRotate=false; // التدوير ملغى نهائياً
   const cutFee=+$('#cutFee').value||0, planName=$('#planName').value.trim();
   if(!(L>0&&W>0)){ toast('أدخل أبعاد لوح صحيحة في جدول الأنواع'); return; }
   settings={L,W,qty,kerf,cutDir,allowRotate,colorize:false,sheetPrice:+at.price||0,sheetName:(at.name||'لوح'),cutFee,planName};
@@ -386,7 +386,7 @@ function buildSheetCanvas(sheet, idx, colorMap, interactive, count){
   const block=document.createElement('div'); block.className='sheet-block';
   block.innerHTML=`
     <div class="sheet-head">
-      <h3>${count>1?`ألواح متطابقة <span class="sheet-mult">×${count}</span>`:`اللوح ${idx+1}`} <span class="dim-note">${settings.sheetName} · ${settings.L}×${settings.W} سم</span></h3>
+      <h3>${count>1?`ألواح متطابقة <span class="sheet-mult">×${count}</span>`:`اللوح ${idx+1}`} <span class="dim-note">${settings.sheetName} • ${settings.L}×${settings.W} سم</span></h3>
       <div class="sheet-meta">
         <span>القص: <b>${cutDirLabel(settings.cutDir)}</b></span>
         <span>القطع: <b>${st.count}</b></span>
@@ -474,8 +474,8 @@ function renderResults(){
   $('#statsBar').innerHTML =
     (settings.planName?stat('مخطط العمل',settings.planName):'')+
     stat('الألواح المستخدمة',t.sheets+' × '+settings.L+'×'+settings.W)+
-    stat('المساحة المستخدمة',m2(t.used)+' م² · '+t.util.toFixed(0)+'%','good')+
-    stat('المساحة المهدورة',m2(t.area-t.used)+' م² · '+t.waste.toFixed(0)+'%','warn')+
+    stat('المساحة المستخدمة',m2(t.used)+' م² • '+t.util.toFixed(0)+'%','good')+
+    stat('المساحة المهدورة',m2(t.area-t.used)+' م² • '+t.waste.toFixed(0)+'%','warn')+
     stat('إجمالي القصّات',t.cuts)+
     stat('طول القص (تقديري)',fmtNum(Math.round(t.cutLen))+' سم')+
     stat('حرف التلبيس',t.meters.toFixed(2)+' م')+
@@ -699,7 +699,8 @@ function drawSheetToCanvasEl(sheet, idx, s){
   ctx.scale(dpr,dpr);
   ctx.direction='ltr';
   ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,Wpx+MR,Hpx+MB);
-  ctx.lineWidth=2; ctx.strokeStyle='#8a5e26'; ctx.strokeRect(1,1,Wpx-2,Hpx-2);
+  // تم إزالة الإطار الخارجي حول اللوح
+  // ctx.lineWidth=2; ctx.strokeStyle='#8a5e26'; ctx.strokeRect(1,1,Wpx-2,Hpx-2); 
   ctx.textAlign='center'; ctx.textBaseline='middle';
   recomputeWaste(sheet).forEach(w=>{
     const x=w.x*s,y=w.y*s,ww=w.w*s,hh=w.h*s;
@@ -999,7 +1000,7 @@ function resetProject(){
   const kf=$('#kerf'); if(kf) kf.value='';
   const cf=$('#cutFee'); if(cf) cf.value='';
   const cd=$('#cutDir'); if(cd) cd.value='length';
-  const ar=$('#allowRotate'); if(ar) ar.checked=false;
+  // لم تعد هناك حاجة لضبط allowRotate لأنه اختفى
   showExtra=false; applyExtraToggleUI();
   renderSheetTable(); renderPieceTable(); renderResults();
   window.scrollTo(0,0);
@@ -1055,7 +1056,9 @@ const _pg=$('#pdfOptGo'); if(_pg) _pg.addEventListener('click',()=>{
 $('#pdfClose').addEventListener('click',()=>{ $('#pdfModal').classList.add('hidden'); $('#pdfFrame').src='about:blank'; });
 $('#pdfPrint').addEventListener('click',()=>{ const f=$('#pdfFrame'); try{ f.contentWindow.focus(); f.contentWindow.print(); }catch(e){ toast('استخدم زر التنزيل بدل الطباعة'); } });
 $('#addSheet').addEventListener('click',()=>{ sheetTypes.push({id:nid(),name:'لوح',l:null,w:null,qty:null,price:null}); renderSheetTable(); });
-['allowRotate','cutDir'].forEach(id=>$('#'+id).addEventListener('change',()=>{ if(layout) optimize(); }));
+
+// مستمع التغيير لاتجاه القص فقط (تم إلغاء السماح بالتدوير)
+$('#cutDir').addEventListener('change',()=>{ if(layout) optimize(); });
 
 const emptyPiece=()=>({id:nid(),name:'',l:null,w:null,qty:null,bandId:bandTypes[0]?.id,edges:{t:false,b:false,l:false,r:false}});
 const _saved=loadState();
@@ -1064,7 +1067,7 @@ if(_saved){
   const setV=(id,v)=>{ const el=$('#'+id); if(el!=null&&v!=null&&v!=='') el.value=v; };
   setV('planName',_saved.planName); setV('kerf',_saved.kerf); setV('cutFee',_saved.cutFee);
   if(_saved.cutDir){ const cd=$('#cutDir'); if(cd) cd.value=_saved.cutDir; }
-  const ar=$('#allowRotate'); if(ar) ar.checked=!!_saved.allowRotate;
+  // allowRotate لم يعد موجودًا
 }
 applyExtraToggleUI();
 
