@@ -689,7 +689,7 @@ function _band(ctx,x,y,w,h){
   ctx.restore();
 }
 function drawSheetToCanvasEl(sheet, idx, s){
-  const MR=26, MB=24;
+  const MR=44, MB=40;   // هوامش أكبر
   const cv=document.createElement('canvas');
   const Wpx=Math.max(1,Math.round(settings.L*s)), Hpx=Math.max(1,Math.round(settings.W*s));
   const dpr=2;
@@ -699,8 +699,7 @@ function drawSheetToCanvasEl(sheet, idx, s){
   ctx.scale(dpr,dpr);
   ctx.direction='ltr';
   ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,Wpx+MR,Hpx+MB);
-  // تم إزالة الإطار الخارجي حول اللوح
-  // ctx.lineWidth=2; ctx.strokeStyle='#8a5e26'; ctx.strokeRect(1,1,Wpx-2,Hpx-2); 
+  // إطار خارجي محذوف
   ctx.textAlign='center'; ctx.textBaseline='middle';
   recomputeWaste(sheet).forEach(w=>{
     const x=w.x*s,y=w.y*s,ww=w.w*s,hh=w.h*s;
@@ -740,14 +739,14 @@ function drawSheetToCanvasEl(sheet, idx, s){
   ctx.save();
   ctx.strokeStyle='#a8706f'; ctx.fillStyle='#a8706f'; ctx.lineWidth=1.2;
   ctx.textAlign='center'; ctx.textBaseline='middle';
-  const by=Hpx+12;
+  const by=Hpx+22;   // مسافة أكبر
   ctx.beginPath(); ctx.moveTo(0,by); ctx.lineTo(Wpx,by); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(0,by-4); ctx.lineTo(0,by+4); ctx.moveTo(Wpx,by-4); ctx.lineTo(Wpx,by+4); ctx.stroke();
   ctx.font='600 16px Cairo, Arial, sans-serif';
   const lt=fmtNum(settings.L)+''; const ltw=ctx.measureText(lt).width;
   ctx.fillStyle='#ffffff'; ctx.fillRect(Wpx/2-ltw/2-5, by-10, ltw+10, 20);
   ctx.fillStyle='#a8706f'; ctx.fillText(lt, Wpx/2, by);
-  const rx=Wpx+12;
+  const rx=Wpx+22;   // مسافة أكبر
   ctx.beginPath(); ctx.moveTo(rx,0); ctx.lineTo(rx,Hpx); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(rx-4,0); ctx.lineTo(rx+4,0); ctx.moveTo(rx-4,Hpx); ctx.lineTo(rx+4,Hpx); ctx.stroke();
   ctx.save(); ctx.translate(rx, Hpx/2); ctx.rotate(-Math.PI/2);
@@ -1000,7 +999,6 @@ function resetProject(){
   const kf=$('#kerf'); if(kf) kf.value='';
   const cf=$('#cutFee'); if(cf) cf.value='';
   const cd=$('#cutDir'); if(cd) cd.value='length';
-  // لم تعد هناك حاجة لضبط allowRotate لأنه اختفى
   showExtra=false; applyExtraToggleUI();
   renderSheetTable(); renderPieceTable(); renderResults();
   window.scrollTo(0,0);
@@ -1056,8 +1054,6 @@ const _pg=$('#pdfOptGo'); if(_pg) _pg.addEventListener('click',()=>{
 $('#pdfClose').addEventListener('click',()=>{ $('#pdfModal').classList.add('hidden'); $('#pdfFrame').src='about:blank'; });
 $('#pdfPrint').addEventListener('click',()=>{ const f=$('#pdfFrame'); try{ f.contentWindow.focus(); f.contentWindow.print(); }catch(e){ toast('استخدم زر التنزيل بدل الطباعة'); } });
 $('#addSheet').addEventListener('click',()=>{ sheetTypes.push({id:nid(),name:'لوح',l:null,w:null,qty:null,price:null}); renderSheetTable(); });
-
-// مستمع التغيير لاتجاه القص فقط (تم إلغاء السماح بالتدوير)
 $('#cutDir').addEventListener('change',()=>{ if(layout) optimize(); });
 
 const emptyPiece=()=>({id:nid(),name:'',l:null,w:null,qty:null,bandId:bandTypes[0]?.id,edges:{t:false,b:false,l:false,r:false}});
@@ -1067,7 +1063,6 @@ if(_saved){
   const setV=(id,v)=>{ const el=$('#'+id); if(el!=null&&v!=null&&v!=='') el.value=v; };
   setV('planName',_saved.planName); setV('kerf',_saved.kerf); setV('cutFee',_saved.cutFee);
   if(_saved.cutDir){ const cd=$('#cutDir'); if(cd) cd.value=_saved.cutDir; }
-  // allowRotate لم يعد موجودًا
 }
 applyExtraToggleUI();
 
