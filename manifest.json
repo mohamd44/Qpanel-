@@ -1,7 +1,6 @@
 {
   "name": "IQ Panel — محسّن قص ألواح الأخشاب",
   "short_name": "IQ Panel",
-  "version": "1.0.20",
   "description": "نظام ذكي لتخطيط وتحسين عمليات قص ألواح الأخشاب بأقل هدر وأعلى ربحية.",
   "start_url": "./index.html",
   "scope": "./",
