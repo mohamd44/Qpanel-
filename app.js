@@ -300,7 +300,6 @@ function optimize(){
 
   renderResults();
   saveState();
-  // سيتم استدعاء saveProjectToCloud() لاحقاً عند تفعيل السحابة
 }
 
 /* ---------------- حساب الإحصائيات ---------------- */
@@ -1075,7 +1074,7 @@ if(layout&&layout.length) renderResults();
 document.addEventListener('input', scheduleSave);
 document.addEventListener('change', scheduleSave);
 
-/* ========== Firebase Auth (جديد) ========== */
+/* ========== Firebase Auth (إجباري) ========== */
 let currentUser = null;
 
 function showAuthModal() {
@@ -1088,8 +1087,14 @@ function hideAuthModal() {
   $('#authError').style.display = 'none';
 }
 
+// منع إغلاق النافذة عند النقر على الخلفية
+document.getElementById('authModal').addEventListener('click', function(e) {
+  if (e.target === this) {
+    e.stopPropagation();
+  }
+});
+
 $('#btnLogin').addEventListener('click', showAuthModal);
-$('#authClose').addEventListener('click', hideAuthModal);
 
 $('#authLoginBtn').addEventListener('click', async () => {
   const email = $('#authEmail').value.trim();
@@ -1144,12 +1149,19 @@ $('#btnLogout').addEventListener('click', async () => {
 onAuthStateChanged(window.auth, (user) => {
   currentUser = user;
   if (user) {
+    // إظهار التطبيق وإخفاء نافذة الدخول
+    document.querySelector('main.layout').style.display = '';
+    $('#authModal').classList.add('hidden');
     $('#btnLogin').style.display = 'none';
     $('#btnLogout').style.display = '';
-    console.log('مرحباً،', user.email);
   } else {
-    $('#btnLogin').style.display = '';
+    // إخفاء التطبيق وإظهار نافذة الدخول
+    document.querySelector('main.layout').style.display = 'none';
+    $('#authModal').classList.remove('hidden');
+    $('#btnLogin').style.display = 'none';
     $('#btnLogout').style.display = 'none';
-    showAuthModal();
+    $('#authEmail').value = '';
+    $('#authPassword').value = '';
+    $('#authError').style.display = 'none';
   }
 });
