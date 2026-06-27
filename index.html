@@ -25,8 +25,10 @@
         <span>نظام ذكي لتخطيط وتحسين قص ألواح الأخشاب — أقل هدر، أعلى ربحية</span>
       </div>
     </div>
-    <div class="header-actions">
+    <div class="header-actions" id="headerActions">
       <button id="btnNew" class="btn">🆕 مشروع جديد</button>
+      <button id="btnLogin" class="btn btn-primary">🔐 تسجيل الدخول</button>
+      <button id="btnLogout" class="btn" style="display:none">🚪 خروج</button>
     </div>
   </header>
 
@@ -62,7 +64,6 @@
             <option value="free">حر (يختار التطبيق الأفضل تلقائياً)</option>
           </select>
         </label>
-        <!-- تم حذف مربع السماح بتدوير القطعة -->
       </section>
 
       <!-- أنواع حرف التلبيس -->
@@ -95,7 +96,7 @@
           <button class="btn btn-sm" id="addPiece">+ إضافة قطعة</button>
           <button class="btn btn-sm" id="addPiece10">+ إضافة ١٠ صفوف</button>
         </div>
-        <p class="hint">أدخل <b>الطول × العرض × العدد</b> فقط لإدخال سريع. زر <b>⚙ خيارات إضافية</b> بالأعلى يُفعّل (لمرة واحدة) إظهار الاسم ونوع الحرف ومكان التلبيس لكل القطع، ويُلغى تلقائياً عند بدء مشروع جديد.</p>
+        <p class="hint">أدخل <b>الطول × العرض × العدد</b> فقط لإدخال سريع. زر <b>⚙ خيارات إضافية</b> بالأعلى يُفعّل إظهار الاسم ونوع الحرف ومكان التلبيس لكل القطع.</p>
       </section>
     </aside>
 
@@ -108,7 +109,6 @@
       </div>
       <div id="sheetsArea" class="sheets-area"></div>
       <p id="dragHint" class="hint hidden">💡 <b>اضغط مع الاستمرار</b> على أي قطعة حتى ترتفع ثم اسحبها. عند الإفلات <b>تلتصق مغناطيسياً</b> بحافة أقرب قطعة تاركةً فاصل سُمك المنشار فقط — على خط قص مستقيم. يمكن نقلها بين الألواح وتتحدّث الإحصائيات تلقائياً.</p>
-      <!-- شريط الإجراءات السفلي -->
       <div id="resultsActions" class="results-actions">
         <span class="band-legend"><i class="band-swatch"></i> حرف التلبيس (التقشيط)</span>
         <div class="results-actions-btns">
@@ -119,12 +119,10 @@
     </section>
   </main>
 
-  <!-- حاوية تقرير الـ PDF (مخفية) -->
+  <!-- باقي النوافذ كما هي (بدون تغيير) -->
   <div id="pdfReport" class="pdf-report"></div>
-
   <div id="toast" class="toast hidden"></div>
 
-  <!-- مؤشر تقدم إنشاء الـ PDF -->
   <div id="progressOverlay" class="progress-overlay hidden">
     <div class="progress-box">
       <div class="progress-ring"></div>
@@ -135,7 +133,26 @@
 
   <button id="btnInstall" class="install-fab hidden">⬇️ تثبيت التطبيق على الهاتف</button>
 
-  <!-- نافذة خيارات الحفظ قبل إنشاء PDF -->
+  <!-- نافذة تسجيل الدخول (مضافة حديثاً) -->
+  <div id="authModal" class="pdf-modal hidden">
+    <div class="pdf-modal-box" style="max-width:380px">
+      <div class="pdf-modal-head">
+        <span class="pdf-modal-title">🔐 تسجيل الدخول</span>
+        <button id="authClose" class="btn btn-danger" type="button">✕</button>
+      </div>
+      <div style="padding:14px 16px; display:flex; flex-direction:column; gap:10px">
+        <input type="email" id="authEmail" placeholder="البريد الإلكتروني" style="direction:ltr">
+        <input type="password" id="authPassword" placeholder="كلمة المرور" style="direction:ltr">
+        <div style="display:flex; gap:8px; justify-content:space-between">
+          <button id="authLoginBtn" class="btn btn-primary" style="flex:1">دخول</button>
+          <button id="authSignupBtn" class="btn" style="flex:1">إنشاء حساب</button>
+        </div>
+        <p id="authError" style="color:red; font-size:12px; display:none; margin:0"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- نافذة خيارات PDF (موجودة مسبقاً) -->
   <div id="pdfOptModal" class="pdf-modal hidden">
     <div class="pdf-modal-box pdf-opt-box">
       <div class="pdf-modal-head">
@@ -176,6 +193,26 @@
       <p class="pdf-modal-hint">إن لم يبدأ التنزيل تلقائياً: استخدم زر «تنزيل» بالأعلى، أو زر التنزيل داخل عارض الـ PDF، أو «طباعة / حفظ» ثم اختر «حفظ كـ PDF» (يعمل على الجوال والكمبيوتر).</p>
     </div>
   </div>
+
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+    import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDE5OHG_MbW_fU34hJ2nZllWV-OsA4KLXE",
+      authDomain: "iqpanel-sub.firebaseapp.com",
+      projectId: "iqpanel-sub",
+      storageBucket: "iqpanel-sub.firebasestorage.app",
+      messagingSenderId: "9638341677",
+      appId: "1:9638341677:web:c5ef1f31dc22ca4e9b1ca4"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    window.auth = getAuth(app);
+    window.db = getFirestore(app);
+  </script>
 
   <script src="app.js"></script>
   <script>
