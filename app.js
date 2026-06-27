@@ -36,7 +36,21 @@ function colorForSize(l,w,map){ const k=`${l}x${w}`; if(!(k in map)) map[k]=pale
 /* ---------------- تحميل مكتبات الـ PDF عند الحاجة فقط ---------------- */
 let _pdfLibsP=null;
 function _loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=()=>rej(new Error('فشل تحميل '+src)); document.head.appendChild(s); }); }
-async function ensurePdfLibs(){ if(window.jspdf&&window.html2canvas) return; if(!_pdfLibsP){ _pdfLibsP=Promise.all([_loadScript('jspdf.umd.min.js'),_loadScript('html2canvas.min.js')]); } await _pdfLibsP; }
+// تحميل مكتبة بمصدر محلي، وإن فشل يُجرّب رابط الإنترنت (CDN) تلقائياً
+async function _loadWithFallback(localSrc, cdnSrc){
+  try{ await _loadScript(localSrc); }
+  catch(_){ await _loadScript(cdnSrc); }
+}
+async function ensurePdfLibs(){
+  if(window.jspdf&&window.html2canvas) return;
+  if(!_pdfLibsP){
+    _pdfLibsP=(async()=>{
+      await _loadWithFallback('jspdf.umd.min.js','https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+      await _loadWithFallback('html2canvas.min.js','https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+    })();
+  }
+  await _pdfLibsP;
+}
 
 /* ---------------- حفظ آخر مشروع تلقائياً ---------------- */
 const LS_KEY='iqpanel_project_v2';
