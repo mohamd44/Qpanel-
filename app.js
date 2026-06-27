@@ -61,7 +61,7 @@ async function ensurePdfLibs(){
   await _pdfLibsP;
 }
 
-/* ---------------- حفظ آخر مشروع تلقائياً ---------------- */
+/* ---------------- حفظ آخر مشروع تلقائياً (محلي) ---------------- */
 const LS_KEY='iqpanel_project_v2';
 function _readInputs(){ return {
   planName:($('#planName')&&$('#planName').value)||'',
@@ -300,6 +300,7 @@ function optimize(){
 
   renderResults();
   saveState();
+  // سيتم استدعاء saveProjectToCloud() لاحقاً عند تفعيل السحابة
 }
 
 /* ---------------- حساب الإحصائيات ---------------- */
@@ -689,7 +690,7 @@ function _band(ctx,x,y,w,h){
   ctx.restore();
 }
 function drawSheetToCanvasEl(sheet, idx, s){
-  const MR=44, MB=40;   // هوامش أكبر
+  const MR=44, MB=40;   // هوامش أكبر لمنع التداخل
   const cv=document.createElement('canvas');
   const Wpx=Math.max(1,Math.round(settings.L*s)), Hpx=Math.max(1,Math.round(settings.W*s));
   const dpr=2;
@@ -739,14 +740,14 @@ function drawSheetToCanvasEl(sheet, idx, s){
   ctx.save();
   ctx.strokeStyle='#a8706f'; ctx.fillStyle='#a8706f'; ctx.lineWidth=1.2;
   ctx.textAlign='center'; ctx.textBaseline='middle';
-  const by=Hpx+22;   // مسافة أكبر
+  const by=Hpx+22;   // مسافة أكبر للمسطرة السفلية
   ctx.beginPath(); ctx.moveTo(0,by); ctx.lineTo(Wpx,by); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(0,by-4); ctx.lineTo(0,by+4); ctx.moveTo(Wpx,by-4); ctx.lineTo(Wpx,by+4); ctx.stroke();
   ctx.font='600 16px Cairo, Arial, sans-serif';
   const lt=fmtNum(settings.L)+''; const ltw=ctx.measureText(lt).width;
   ctx.fillStyle='#ffffff'; ctx.fillRect(Wpx/2-ltw/2-5, by-10, ltw+10, 20);
   ctx.fillStyle='#a8706f'; ctx.fillText(lt, Wpx/2, by);
-  const rx=Wpx+22;   // مسافة أكبر
+  const rx=Wpx+22;   // مسافة أكبر للمسطرة الجانبية
   ctx.beginPath(); ctx.moveTo(rx,0); ctx.lineTo(rx,Hpx); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(rx-4,0); ctx.lineTo(rx+4,0); ctx.moveTo(rx-4,Hpx); ctx.lineTo(rx+4,Hpx); ctx.stroke();
   ctx.save(); ctx.translate(rx, Hpx/2); ctx.rotate(-Math.PI/2);
@@ -1073,3 +1074,82 @@ if(layout&&layout.length) renderResults();
 
 document.addEventListener('input', scheduleSave);
 document.addEventListener('change', scheduleSave);
+
+/* ========== Firebase Auth (جديد) ========== */
+let currentUser = null;
+
+function showAuthModal() {
+  $('#authModal').classList.remove('hidden');
+}
+function hideAuthModal() {
+  $('#authModal').classList.add('hidden');
+  $('#authEmail').value = '';
+  $('#authPassword').value = '';
+  $('#authError').style.display = 'none';
+}
+
+$('#btnLogin').addEventListener('click', showAuthModal);
+$('#authClose').addEventListener('click', hideAuthModal);
+
+$('#authLoginBtn').addEventListener('click', async () => {
+  const email = $('#authEmail').value.trim();
+  const password = $('#authPassword').value;
+  if(!email || !password) {
+    $('#authError').textContent = 'الرجاء إدخال البريد وكلمة المرور';
+    $('#authError').style.display = 'block';
+    return;
+  }
+  try {
+    await signInWithEmailAndPassword(window.auth, email, password);
+    hideAuthModal();
+    toast('✓ تم تسجيل الدخول');
+  } catch(e) {
+    $('#authError').textContent = 'خطأ: ' + e.message;
+    $('#authError').style.display = 'block';
+  }
+});
+
+$('#authSignupBtn').addEventListener('click', async () => {
+  const email = $('#authEmail').value.trim();
+  const password = $('#authPassword').value;
+  if(!email || !password) {
+    $('#authError').textContent = 'الرجاء إدخال البريد وكلمة المرور';
+    $('#authError').style.display = 'block';
+    return;
+  }
+  try {
+    const cred = await createUserWithEmailAndPassword(window.auth, email, password);
+    await setDoc(doc(window.db, 'users', cred.user.uid), {
+      email: email,
+      plan: 'free',
+      createdAt: new Date()
+    });
+    hideAuthModal();
+    toast('✓ تم إنشاء الحساب بنجاح');
+  } catch(e) {
+    $('#authError').textContent = 'خطأ: ' + e.message;
+    $('#authError').style.display = 'block';
+  }
+});
+
+$('#btnLogout').addEventListener('click', async () => {
+  try {
+    await signOut(window.auth);
+    toast('✓ تم تسجيل الخروج');
+  } catch(e) {
+    toast('خطأ في الخروج: ' + e.message);
+  }
+});
+
+onAuthStateChanged(window.auth, (user) => {
+  currentUser = user;
+  if (user) {
+    $('#btnLogin').style.display = 'none';
+    $('#btnLogout').style.display = '';
+    console.log('مرحباً،', user.email);
+  } else {
+    $('#btnLogin').style.display = '';
+    $('#btnLogout').style.display = 'none';
+    showAuthModal();
+  }
+});
