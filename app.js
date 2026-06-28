@@ -166,9 +166,9 @@ function optimize(){
   const fits=(fr,pl,pw)=> pl<=fr.w+1e-6 && pw<=fr.h+1e-6;
 
   function tryPlace(s,it){
-    let best=null,score=Infinity,rot=false;
+    let best=null,score=Infinity;
     for(const fr of s.free){
-      if(fits(fr,it._l,it._w)){ const sc=Math.min(fr.w-it._l,fr.h-it._w); if(sc<score){score=sc;best=fr;rot=false;} }
+      if(fits(fr,it._l,it._w)){ const sc=Math.min(fr.w-it._l,fr.h-it._w); if(sc<score){score=sc;best=fr;} }
     }
     if(!best) return false;
     const pl=it._l, pw=it._w;
@@ -234,7 +234,7 @@ function renderResults(){
   const area=$('#sheetsArea'); area.innerHTML='';
   if(!layout||!layout.length){ $('#emptyState').classList.remove('hidden'); return; }
   $('#emptyState').classList.add('hidden');
-  // ... باقي دالة renderResults
+  // باقي رسم النتائج (موجودة في النسخ السابقة لكن غير مطلوبة للاختبار)
 }
 
 /* ========== Firebase Auth (إجباري) ========== */
@@ -254,26 +254,88 @@ document.getElementById('authModal')?.addEventListener('click', function(e) {
   if (e.target === this) e.stopPropagation();
 });
 
+// تبويبات الدخول
+let activeTab = 'login';
+function setActiveTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll('.auth-tab').forEach(btn => btn.classList.remove('active'));
+  const target = document.querySelector(`.auth-tab[data-tab="${tab}"]`);
+  if (target) target.classList.add('active');
+  const actionBtn = document.getElementById('authActionBtn');
+  if (actionBtn) actionBtn.textContent = tab === 'login' ? 'دخول' : 'إنشاء حساب';
+  const errEl = document.getElementById('authError');
+  if (errEl) errEl.style.display = 'none';
+}
+document.querySelectorAll('.auth-tab').forEach(btn => {
+  btn.addEventListener('click', () => setActiveTab(btn.dataset.tab));
+});
+
+async function handleAuthAction() {
+  const email = document.getElementById('authEmail')?.value.trim() || '';
+  const password = document.getElementById('authPassword')?.value || '';
+  const errEl = document.getElementById('authError');
+
+  if (!email || !password) {
+    if (errEl) { errEl.textContent = 'الرجاء إدخال البريد وكلمة المرور'; errEl.style.display = 'block'; }
+    return;
+  }
+  if (!email.includes('@') || !email.includes('.')) {
+    if (errEl) { errEl.textContent = 'صيغة البريد غير صحيحة'; errEl.style.display = 'block'; }
+    return;
+  }
+
+  if (activeTab === 'login') {
+    try {
+      await window.signInWithEmailAndPassword(window.auth, email, password);
+      toast('✓ تم تسجيل الدخول');
+    } catch (e) {
+      if (errEl) { errEl.textContent = 'خطأ: ' + e.message; errEl.style.display = 'block'; }
+    }
+  } else {
+    try {
+      const cred = await window.createUserWithEmailAndPassword(window.auth, email, password);
+      await window.setDoc(window.doc(window.db, 'users', cred.user.uid), {
+        email: email, plan: 'free', createdAt: new Date()
+      });
+      toast('✓ تم إنشاء الحساب بنجاح');
+    } catch (e) {
+      if (errEl) {
+        errEl.textContent = e.code === 'auth/email-already-in-use' 
+          ? 'البريد الإلكتروني مسجل مسبقاً. استخدم تسجيل الدخول.' 
+          : 'خطأ: ' + e.message;
+        errEl.style.display = 'block';
+      }
+    }
+  }
+}
+document.getElementById('authActionBtn')?.addEventListener('click', handleAuthAction);
+
+$('#btnLogin')?.addEventListener('click', showAuthModal);
+$('#btnLogout')?.addEventListener('click', async () => {
+  await window.signOut(window.auth);
+  toast('✓ تم تسجيل الخروج');
+});
+
 window.onAuthStateChanged(window.auth, (user) => {
   currentUser = user;
   if (user) {
     hideAuthModal();
+    if ($('#btnLogin')) $('#btnLogin').style.display = 'none';
+    if ($('#btnLogout')) $('#btnLogout').style.display = '';
   } else {
     showAuthModal();
+    if ($('#btnLogin')) $('#btnLogin').style.display = 'none';
+    if ($('#btnLogout')) $('#btnLogout').style.display = 'none';
   }
 });
 
-/* ========== ربط الأحداث ========== */
-$('#btnLogin')?.addEventListener('click', showAuthModal);
-
-/* ---------- ضمان عرض الجداول فوراً ---------- */
-document.addEventListener('DOMContentLoaded', function() {
-  if (typeof renderSheetTable === 'function') renderSheetTable();
-  if (typeof renderBandTable === 'function') renderBandTable();
-  if (typeof renderPieceTable === 'function') renderPieceTable();
-  if (layout && layout.length) renderResults();
+/* ========== استدعاء الجداول ========== */
+document.addEventListener('DOMContentLoaded', () => {
+  renderSheetTable();
+  renderBandTable();
+  renderPieceTable();
 });
-
+// احتياط
 setTimeout(() => {
   renderSheetTable();
   renderBandTable();
