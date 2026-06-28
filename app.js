@@ -1074,30 +1074,3 @@ if(layout&&layout.length) renderResults();
 
 document.addEventListener('input', scheduleSave);
 document.addEventListener('change', scheduleSave);
-
-// زر الحفظ المحلي
-const btnSaveLocal = $('#btnSaveLocal');
-if (btnSaveLocal) {
-  btnSaveLocal.addEventListener('click', () => {
-    if (!layout) { toast('قم بالتحسين أولاً'); return; }
-    const data = {
-      version: 2,
-      exportedAt: new Date().toISOString(),
-      planName: settings?.planName || '',
-      pieces,
-      sheetTypes,
-      bandTypes,
-      activeSheetId,
-      layout,
-      settings
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = (settings?.planName || 'مشروع') + '.iqpanel.json';
-    a.click();
-    URL.revokeObjectURL(url);
-    toast('✓ تم تنزيل المشروع محلياً');
-  });
-}
