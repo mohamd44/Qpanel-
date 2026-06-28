@@ -1205,10 +1205,12 @@ document.getElementById('authModal')?.addEventListener('click', function(e) {
 });
 
 window.onAuthStateChanged(window.auth, (user) => {
+  console.log('🔥 onAuthStateChanged fired, user:', user ? user.email : 'null');
   currentUser = user;
   authReady = true;
 
   if (user) {
+    console.log('✅ User is signed in, showing app');
     document.querySelector('main.layout').style.display = '';
     hideAuthModal();
     if ($('#btnLogin')) $('#btnLogin').style.display = 'none';
@@ -1216,6 +1218,7 @@ window.onAuthStateChanged(window.auth, (user) => {
     if ($('#btnUpdates')) $('#btnUpdates').style.display = '';
     checkForUpdates();
   } else {
+    console.log('❌ No user, showing auth form');
     document.querySelector('main.layout').style.display = 'none';
     showAuthModal();
     if ($('#btnLogin')) $('#btnLogin').style.display = 'none';
@@ -1223,7 +1226,6 @@ window.onAuthStateChanged(window.auth, (user) => {
     if ($('#btnUpdates')) $('#btnUpdates').style.display = 'none';
   }
 });
-
 /* ========== ربط الأحداث (يأتي بعد تعريف جميع الدوال) ========== */
 $('#btnLogin')?.addEventListener('click', showAuthModal);
 
