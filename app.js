@@ -234,7 +234,7 @@ function renderResults(){
   const area=$('#sheetsArea'); area.innerHTML='';
   if(!layout||!layout.length){ $('#emptyState').classList.remove('hidden'); return; }
   $('#emptyState').classList.add('hidden');
-  // باقي رسم النتائج (موجودة في النسخ السابقة لكن غير مطلوبة للاختبار)
+  // رسم المخططات سيكون هنا (موجود بالنسخة الكاملة لكن تم اختصاره)
 }
 
 /* ========== Firebase Auth (إجباري) ========== */
@@ -254,7 +254,6 @@ document.getElementById('authModal')?.addEventListener('click', function(e) {
   if (e.target === this) e.stopPropagation();
 });
 
-// تبويبات الدخول
 let activeTab = 'login';
 function setActiveTab(tab) {
   activeTab = tab;
@@ -329,15 +328,41 @@ window.onAuthStateChanged(window.auth, (user) => {
   }
 });
 
+/* ========== ربط أزرار الإضافة ========== */
+$('#addBand').addEventListener('click', ()=>{
+  bandTypes.push({id:nid(), name:'نوع جديد', price:0.5});
+  renderBandTable();
+  renderPieceTable();
+});
+$('#addSheet').addEventListener('click', ()=>{
+  sheetTypes.push({id:nid(), name:'لوح', l:null, w:null, qty:null, price:null});
+  renderSheetTable();
+});
+$('#addPiece').addEventListener('click', ()=>{
+  const id = nid();
+  pieces.push({id, name:'', l:null, w:null, qty:null, bandId:bandTypes[0]?.id, edges:{t:false,b:false,l:false,r:false}});
+  renderPieceTable();
+});
+$('#addPiece10')?.addEventListener('click', ()=>{
+  for(let i=0;i<10;i++){
+    const id = nid();
+    pieces.push({id, name:'', l:null, w:null, qty:null, bandId:bandTypes[0]?.id, edges:{t:false,b:false,l:false,r:false}});
+  }
+  renderPieceTable();
+  toast('✓ تمت إضافة ١٠ صفوف');
+});
+applyExtraToggleUI();
+
 /* ========== استدعاء الجداول ========== */
 document.addEventListener('DOMContentLoaded', () => {
   renderSheetTable();
   renderBandTable();
   renderPieceTable();
+  if (layout && layout.length) renderResults();
 });
-// احتياط
 setTimeout(() => {
   renderSheetTable();
   renderBandTable();
   renderPieceTable();
+  if (layout && layout.length) renderResults();
 }, 10);
