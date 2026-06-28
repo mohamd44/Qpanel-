@@ -282,11 +282,108 @@ function pieceBanding(p){
 /* ---------------- رسم النتائج ---------------- */
 const fmtNum=n=>Number.isInteger(n)?n:Math.round(n*10)/10;
 
+function displayEdges(p){
+  const e=p.edges;
+  if(!p.rot) return {t:e.t,b:e.b,l:e.l,r:e.r};
+  return { t:e.l, b:e.r, l:e.b, r:e.t };
+}
+
+function recomputeWaste(sheet){
+  const L=settings.L, W=settings.W;
+  const xsSet=new Set([0,L]), ysSet=new Set([0,W]);
+  sheet.pieces.forEach(p=>{ xsSet.add(p.x); xsSet.add(p.x+p.l); ysSet.add(p.y); ysSet.add(p.y+p.w); });
+  const xs=[...xsSet].sort((a,b)=>a-b), ys=[...ysSet].sort((a,b)=>a-b);
+  const nC=xs.length-1, nR=ys.length-1;
+  if(nC<1||nR<1) return [];
+  const occ=[], usedC=[];
+  for(let r=0;r<nR;r++){ occ[r]=[]; usedC[r]=new Array(nC).fill(false);
+    for(let c=0;c<nC;c++){
+      const cx=(xs[c]+xs[c+1])/2, cy=(ys[r]+ys[r+1])/2;
+      occ[r][c]=sheet.pieces.some(p=>cx>=p.x&&cx<=p.x+p.l&&cy>=p.y&&cy<=p.y+p.w);
+    }
+  }
+  const rects=[];
+  for(let r=0;r<nR;r++) for(let c=0;c<nC;c++){
+    if(occ[r][c]||usedC[r][c]) continue;
+    let c2=c; while(c2+1<nC && !occ[r][c2+1] && !usedC[r][c2+1]) c2++;
+    let r2=r, ok=true;
+    while(r2+1<nR && ok){ for(let cc=c;cc<=c2;cc++){ if(occ[r2+1][cc]||usedC[r2+1][cc]){ok=false;break;} } if(ok) r2++; }
+    for(let rr=r;rr<=r2;rr++) for(let cc=c;cc<=c2;cc++) usedC[rr][cc]=true;
+    const x=xs[c], y=ys[r], w=xs[c2+1]-xs[c], h=ys[r2+1]-ys[r];
+    if(w>2.5&&h>2.5) rects.push({x:Math.round(x*10)/10,y:Math.round(y*10)/10,w:Math.round(w*10)/10,h:Math.round(h*10)/10});
+  }
+  return rects;
+}
+
+function buildSheetCanvas(sheet, idx, colorMap, interactive, count){
+  count=count||1;
+  const st = { count: sheet.pieces.length, cuts: sheet.cuts || 0, util: 100, waste: 0, meters: 0 };
+  const block=document.createElement('div'); block.className='sheet-block';
+  block.innerHTML=`
+    <div class="sheet-head">
+      <h3>${count>1?`ألواح متطابقة <span class="sheet-mult">×${count}</span>`:`اللوح ${idx+1}`} <span class="dim-note">${settings.sheetName} • ${settings.L}×${settings.W} سم</span></h3>
+      <div class="sheet-meta">
+        <span>القطع: <b>${st.count}</b></span>
+        <span>القصّات: <b>${st.cuts}</b></span>
+      </div>
+    </div>
+    <div class="stage">
+      ${count>1?`<div class="mult-badge" title="عدد الألواح المتطابقة">*${count}</div>`:''}
+      <div class="canvas-wrap"><div class="sheet-canvas" data-sheet="${idx}"></div></div>
+      <div class="ruler-y"><span>${fmtNum(settings.W)}</span></div>
+      <div class="ruler-x"><span>${fmtNum(settings.L)}</span></div>
+    </div>`;
+  const canvas=block.querySelector('.sheet-canvas');
+  canvas.style.direction='ltr';
+  canvas._sheet=sheet; canvas._idx=idx; canvas._colorMap=colorMap; canvas._interactive=interactive;
+  return { block, canvas };
+}
+
+function positionPieces(canvas, scale){
+  const sheet=canvas._sheet;
+  canvas.style.height=(settings.W*scale)+'px';
+  canvas.innerHTML='';
+  recomputeWaste(sheet).forEach(w=>{
+    const wd=document.createElement('div'); wd.className='waste';
+    wd.style.left=(w.x*scale)+'px'; wd.style.top=(w.y*scale)+'px';
+    wd.style.width=(w.w*scale)+'px'; wd.style.height=(w.h*scale)+'px';
+    wd.innerHTML=`<span class="wd-h">${fmtNum(w.w)}</span><span class="wd-v">${fmtNum(w.h)}</span>`;
+    canvas.appendChild(wd);
+  });
+  sheet.pieces.forEach((p,pi)=>{
+    const el=document.createElement('div'); el.className='piece';
+    el.style.left=(p.x*scale)+'px'; el.style.top=(p.y*scale)+'px';
+    el.style.width=(p.l*scale)+'px'; el.style.height=(p.w*scale)+'px';
+    el.style.background=palette[pi % palette.length];
+    el.dataset.sheet=canvas._idx; el.dataset.pi=pi;
+    const small=(p.l*scale<44||p.w*scale<26);
+    el.innerHTML=`<span class="dim-h">${fmtNum(p.l)}</span>
+                  <span class="dim-v">${fmtNum(p.w)}</span>
+                  ${small?'':`<span class="pname">${p.name}${p.rot?' ⟳':''}</span>`}`;
+    const de=displayEdges(p);
+    ['t','b','l','r'].forEach(s=>{ if(de[s]){ const bd=document.createElement('span'); bd.className='band '+s; el.appendChild(bd);} });
+    canvas.appendChild(el);
+  });
+}
+
+let liveCanvases=[];
 function renderResults(){
-  const area=$('#sheetsArea'); area.innerHTML='';
+  const area=$('#sheetsArea'); area.innerHTML=''; liveCanvases=[];
   if(!layout||!layout.length){ $('#emptyState').classList.remove('hidden'); return; }
   $('#emptyState').classList.add('hidden');
-  // هنا يتم رسم المخططات (يمكن تركه فارغاً في الوقت الحالي)
+  const groups = groupSheets ? groupSheets() : [{sheet: layout[0], idx:0, count:1}];
+  groups.forEach(g=>{ const {block,canvas}=buildSheetCanvas(g.sheet,g.idx,{},true,g.count); area.appendChild(block); liveCanvases.push(canvas); });
+  requestAnimationFrame(()=>liveCanvases.forEach(c=>positionPieces(c, c.clientWidth/settings.L)));
+}
+
+function groupSheets(){
+  const groups=[]; const map={};
+  (layout||[]).forEach((sh,idx)=>{
+    const fp = sh.pieces.map(p=>p.x+','+p.y+','+p.l+','+p.w).join('|');
+    if(map[fp]!=null){ const g=groups[map[fp]]; g.count++; g.idxs.push(idx); }
+    else { map[fp]=groups.length; groups.push({sheet:sh, idx:idx, count:1, idxs:[idx], fp:fp}); }
+  });
+  return groups;
 }
 
 /* ========== Firebase Auth (إجباري) ========== */
@@ -380,11 +477,6 @@ window.onAuthStateChanged(window.auth, (user) => {
   }
 });
 
-/* ========== حفظ سحابي (اختياري) ========== */
-async function saveProjectToCloud() {
-  if (!currentUser || !layout) return;
-}
-
 /* ========== حفظ محلي ========== */
 function saveProjectLocally() {
   if (!layout) { toast('قم بالتحسين أولاً'); return; }
@@ -404,7 +496,64 @@ function saveProjectLocally() {
   toast('✓ تم تنزيل المشروع محلياً');
 }
 
-/* ========== مشروع جديد (إعادة تعيين) ========== */
+/* ========== تصدير PDF ========== */
+async function doExportPDF(){
+  if(!layout||!layout.length){ toast('قم بالتحسين أولاً'); return; }
+  showProgress(10,'تحضير...');
+  await ensurePdfLibs();
+  const { jsPDF }=window.jspdf;
+  const pdf=new jsPDF('p','mm','a4');
+  const pw=210, ph=297, margin=8;
+  showProgress(30,'إنشاء الصفحات...');
+  // بناء صفحات مخفية للتصدير
+  const rep=$('#pdfReport'); rep.innerHTML='';
+  layout.forEach((sheet, i)=>{
+    const page=document.createElement('div'); page.className='pdf-page rpt';
+    page.innerHTML = `<h2 style="text-align:center;color:#b5803c">IQ Panel - اللوح ${i+1}</h2>`;
+    const {block}=buildSheetCanvas(sheet,i,{},false,1);
+    block.style.cssText='box-shadow:none;border:none;padding:0;background:transparent';
+    const _host=block.querySelector('.sheet-canvas');
+    _host.style.height='auto'; _host.style.overflow='visible'; _host.innerHTML='';
+    const cv = document.createElement('canvas');
+    const s=5;
+    const Wpx=Math.max(1,Math.round(settings.L*s)), Hpx=Math.max(1,Math.round(settings.W*s));
+    cv.width = Wpx+44; cv.height = Hpx+40;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,cv.width,cv.height);
+    ctx.fillStyle='#000'; ctx.font='20px Cairo';
+    ctx.fillText(settings.L+' × '+settings.W, 20, Hpx+30);
+    ctx.strokeStyle='#000'; ctx.strokeRect(10,10,Wpx,Hpx);
+    sheet.pieces.forEach((p,pi)=>{
+      ctx.fillStyle=palette[pi%palette.length];
+      ctx.fillRect(p.x*s+10, p.y*s+10, p.l*s, p.w*s);
+      ctx.strokeStyle='#000'; ctx.strokeRect(p.x*s+10, p.y*s+10, p.l*s, p.w*s);
+    });
+    _host.appendChild(cv);
+    page.appendChild(block);
+    rep.appendChild(page);
+  });
+  showProgress(70,'توليد PDF...');
+  const pagesEls=rep.querySelectorAll('.pdf-page');
+  for(let i=0;i<pagesEls.length;i++){
+    const cv=await html2canvas(pagesEls[i],{scale:2,backgroundColor:'#ffffff'});
+    const img=cv.toDataURL('image/jpeg',0.92);
+    const w=pw-margin*2; const h=cv.height*w/cv.width;
+    if(i>0) pdf.addPage();
+    pdf.addImage(img,'JPEG',margin,8,w,h);
+  }
+  const fname=(settings?.planName||'مشروع')+'.pdf';
+  pdf.save(fname);
+  hideProgress();
+  rep.innerHTML='';
+  toast('✓ تم حفظ PDF');
+}
+
+function openPdfOptions(){
+  if(!layout||!layout.length){ toast('قم بالتحسين أولاً'); return; }
+  $('#pdfOptModal').classList.remove('hidden');
+}
+
+/* ========== مشروع جديد ========== */
 function resetProject(){
   if(!confirm('بدء مشروع جديد سيحذف كل البيانات الحالية (الاسم، الأنواع، القطع، الإعدادات والمخطط). هل تريد المتابعة؟')) return;
   try{ localStorage.removeItem(LS_KEY); }catch(_){}
@@ -420,7 +569,6 @@ function resetProject(){
   settings = null;
   showExtra = false;
   applyExtraToggleUI();
-  // مسح الحقول النصية
   const pn=$('#planName'); if(pn) pn.value='';
   const kf=$('#kerf'); if(kf) kf.value='';
   const cf=$('#cutFee'); if(cf) cf.value='';
@@ -436,31 +584,24 @@ function resetProject(){
 /* ========== ربط جميع الأزرار ========== */
 $('#addBand').addEventListener('click', ()=>{
   bandTypes.push({id:nid(), name:'نوع جديد', price:0.5});
-  renderBandTable();
-  renderPieceTable();
-  scheduleSave();
+  renderBandTable(); renderPieceTable(); scheduleSave();
 });
 $('#addSheet').addEventListener('click', ()=>{
   sheetTypes.push({id:nid(), name:'لوح', l:null, w:null, qty:null, price:null});
-  renderSheetTable();
-  scheduleSave();
+  renderSheetTable(); scheduleSave();
 });
 $('#addPiece').addEventListener('click', ()=>{
   const id = nid();
   pieces.push({id, name:'', l:null, w:null, qty:null, bandId:bandTypes[0]?.id, edges:{t:false,b:false,l:false,r:false}});
-  renderPieceTable();
-  scheduleSave();
+  renderPieceTable(); scheduleSave();
 });
 $('#addPiece10')?.addEventListener('click', ()=>{
   for(let i=0;i<10;i++){
     const id = nid();
     pieces.push({id, name:'', l:null, w:null, qty:null, bandId:bandTypes[0]?.id, edges:{t:false,b:false,l:false,r:false}});
   }
-  renderPieceTable();
-  toast('✓ تمت إضافة ١٠ صفوف');
-  scheduleSave();
+  renderPieceTable(); toast('✓ تمت إضافة ١٠ صفوف'); scheduleSave();
 });
-
 const btnExtra = $('#toggleExtra');
 if (btnExtra) {
   btnExtra.addEventListener('click', () => {
@@ -472,37 +613,26 @@ if (btnExtra) {
 }
 applyExtraToggleUI();
 
-// زر مشروع جديد
 $('#btnNew').addEventListener('click', resetProject);
-
-// الأزرار الرئيسية
 $('#btnOptimize').addEventListener('click', optimize);
-$('#btnPdf').addEventListener('click', ()=>{
-  if(!layout||!layout.length){ toast('قم بالتحسين أولاً'); return; }
-  $('#pdfOptModal').classList.remove('hidden');
-});
+$('#btnPdf').addEventListener('click', openPdfOptions);
 $('#btnSaveLocal').addEventListener('click', saveProjectLocally);
 
-// إغلاق نافذة خيارات PDF
 $('#pdfOptCancel')?.addEventListener('click', ()=> $('#pdfOptModal').classList.add('hidden'));
 $('#pdfOptGo')?.addEventListener('click', ()=>{
   $('#pdfOptModal').classList.add('hidden');
-  toast('سيتم تفعيل تصدير PDF لاحقاً');
+  doExportPDF();
 });
 
 /* ========== تحميل البيانات عند بدء التشغيل ========== */
 function initApp() {
   const saved = loadState();
-  // استعادة قيم الحقول النصية
   if (saved) {
     const setV = (id, v) => { const el = $('#'+id); if (el && v != null && v !== '') el.value = v; };
     setV('planName', saved.planName);
     setV('kerf', saved.kerf);
     setV('cutFee', saved.cutFee);
-    if (saved.cutDir) {
-      const cd = $('#cutDir');
-      if (cd) cd.value = saved.cutDir;
-    }
+    if (saved.cutDir) { const cd = $('#cutDir'); if (cd) cd.value = saved.cutDir; }
   }
   applyExtraToggleUI();
   renderSheetTable();
@@ -512,10 +642,8 @@ function initApp() {
 }
 
 document.addEventListener('DOMContentLoaded', initApp);
-// احتياط في حال تأخر الـ DOM
 setTimeout(initApp, 10);
 
-// حفظ عند أي تغيير في الحقول النصية
 ['planName','kerf','cutFee','cutDir'].forEach(id => {
   const el = $('#'+id);
   if (el) el.addEventListener('input', scheduleSave);
