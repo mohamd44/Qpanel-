@@ -317,7 +317,7 @@ function recomputeWaste(sheet){
 
 function buildSheetCanvas(sheet, idx, colorMap, interactive, count){
   count=count||1;
-  const st = { count: sheet.pieces.length, cuts: sheet.cuts || 0, util: 100, waste: 0, meters: 0 };
+  const st = { count: sheet.pieces.length, cuts: sheet.cuts || 0 };
   const block=document.createElement('div'); block.className='sheet-block';
   block.innerHTML=`
     <div class="sheet-head">
@@ -362,6 +362,9 @@ function positionPieces(canvas, scale){
                   ${small?'':`<span class="pname">${p.name}${p.rot?' ⟳':''}</span>`}`;
     const de=displayEdges(p);
     ['t','b','l','r'].forEach(s=>{ if(de[s]){ const bd=document.createElement('span'); bd.className='band '+s; el.appendChild(bd);} });
+    if(canvas._interactive){
+      el.addEventListener('pointerdown', startDrag);
+    }
     canvas.appendChild(el);
   });
 }
@@ -371,7 +374,7 @@ function renderResults(){
   const area=$('#sheetsArea'); area.innerHTML=''; liveCanvases=[];
   if(!layout||!layout.length){ $('#emptyState').classList.remove('hidden'); return; }
   $('#emptyState').classList.add('hidden');
-  const groups = groupSheets ? groupSheets() : [{sheet: layout[0], idx:0, count:1}];
+  const groups = groupSheets ? groupSheets() : layout.map((s,i)=>({sheet:s, idx:i, count:1}));
   groups.forEach(g=>{ const {block,canvas}=buildSheetCanvas(g.sheet,g.idx,{},true,g.count); area.appendChild(block); liveCanvases.push(canvas); });
   requestAnimationFrame(()=>liveCanvases.forEach(c=>positionPieces(c, c.clientWidth/settings.L)));
 }
@@ -384,6 +387,181 @@ function groupSheets(){
     else { map[fp]=groups.length; groups.push({sheet:sh, idx:idx, count:1, idxs:[idx], fp:fp}); }
   });
   return groups;
+}
+
+/* ---------------- السحب والإفلات الاحترافي ---------------- */
+const HOLD_MS=200;
+const MOVE_TOL=9;
+let drag=null;
+
+function startDrag(e){
+  if(e.button && e.button!==0) return;
+  const el=e.currentTarget;
+  const canvas=el.parentElement;
+  const r=el.getBoundingClientRect();
+  drag={ el, canvas, fromSheet:+canvas.dataset.sheet, pi:+el.dataset.pi,
+         piece:layout[+canvas.dataset.sheet].pieces[+el.dataset.pi],
+         offX:e.clientX-r.left, offY:e.clientY-r.top, w:r.width, h:r.height,
+         startX:e.clientX, startY:e.clientY, lastX:e.clientX, lastY:e.clientY,
+         lifted:false, pointerId:e.pointerId };
+  try{ el.setPointerCapture(e.pointerId); }catch(_){}
+  el.classList.add('armed');
+  drag.timer=setTimeout(lift, HOLD_MS);
+  document.addEventListener('pointermove',onDrag);
+  document.addEventListener('pointerup',endDrag);
+  document.addEventListener('pointercancel',cancelDrag);
+}
+
+function lift(){
+  if(!drag) return;
+  drag.lifted=true;
+  const el=drag.el;
+  el.classList.remove('armed'); el.classList.add('lifting');
+  if(navigator.vibrate) try{ navigator.vibrate(25); }catch(_){}
+  el.style.position='fixed'; el.style.margin='0';
+  el.style.width=drag.w+'px'; el.style.height=drag.h+'px';
+  moveFixed(drag.lastX,drag.lastY);
+  highlightTarget(drag.lastX,drag.lastY);
+}
+
+function moveFixed(x,y){ drag.el.style.left=(x-drag.offX)+'px'; drag.el.style.top=(y-drag.offY)+'px'; }
+
+function highlightTarget(x,y){
+  drag.el.style.pointerEvents='none';
+  const t=document.elementFromPoint(x,y);
+  drag.el.style.pointerEvents='';
+  const tc=t?t.closest('.sheet-canvas'):null;
+  liveCanvases.forEach(c=>c.classList.toggle('drop-target', c===tc));
+}
+
+function onDrag(e){
+  if(!drag) return;
+  drag.lastX=e.clientX; drag.lastY=e.clientY;
+  if(!drag.lifted){
+    if(Math.hypot(e.clientX-drag.startX, e.clientY-drag.startY)>MOVE_TOL) cancelDrag();
+    return;
+  }
+  e.preventDefault();
+  moveFixed(e.clientX,e.clientY);
+  highlightTarget(e.clientX,e.clientY);
+}
+
+function cancelDrag(){
+  if(!drag) return;
+  clearTimeout(drag.timer);
+  drag.el.classList.remove('armed','lifting');
+  document.removeEventListener('pointermove',onDrag);
+  document.removeEventListener('pointerup',endDrag);
+  document.removeEventListener('pointercancel',cancelDrag);
+  drag=null;
+}
+
+function overlapsAny(sheetIdx, piece, x, y, exceptIdx){
+  const ps=layout[sheetIdx].pieces;
+  for(let i=0;i<ps.length;i++){
+    if(i===exceptIdx) continue;
+    const o=ps[i];
+    if(x < o.x+o.l && x+piece.l > o.x && y < o.y+o.w && y+piece.w > o.y) return true;
+  }
+  return false;
+}
+function findFreeSpot(sheetIdx, piece, wx, wy, exceptIdx){
+  if(!overlapsAny(sheetIdx,piece,wx,wy,exceptIdx)) return {x:wx,y:wy};
+  const step=2, maxX=settings.L-piece.l, maxY=settings.W-piece.w;
+  let best=null, bestD=Infinity;
+  for(let gy=0; gy<=maxY+0.001; gy+=step){
+    for(let gx=0; gx<=maxX+0.001; gx+=step){
+      if(!overlapsAny(sheetIdx,piece,gx,gy,exceptIdx)){
+        const d=(gx-wx)*(gx-wx)+(gy-wy)*(gy-wy);
+        if(d<bestD){ bestD=d; best={x:gx,y:gy}; }
+      }
+    }
+  }
+  return best;
+}
+
+function magnetSnap(sheetIdx, piece, nx, ny, exceptIdx){
+  const ps=layout[sheetIdx].pieces, kerf=settings.kerf||0;
+  const maxX=settings.L-piece.l, maxY=settings.W-piece.w;
+  const cand=[];
+  const add=(x,y)=>{
+    x=Math.max(0,Math.min(x,maxX)); y=Math.max(0,Math.min(y,maxY));
+    cand.push({x,y});
+  };
+  add(0,0); add(maxX,0); add(0,maxY); add(maxX,maxY);
+  ps.forEach((o,i)=>{ if(i===exceptIdx) return;
+    const right=o.x+o.l+kerf, left=o.x-piece.l-kerf;
+    const below=o.y+o.w+kerf, above=o.y-piece.w-kerf;
+    const yTop=o.y, yBot=o.y+o.w-piece.w;
+    const xLeft=o.x, xRight=o.x+o.l-piece.l;
+    add(right,yTop); add(right,yBot);
+    add(left,yTop);  add(left,yBot);
+    add(xLeft,below);add(xRight,below);
+    add(xLeft,above);add(xRight,above);
+  });
+  let best=null, bd=Infinity;
+  for(const c of cand){
+    if(c.x<-0.01||c.x>maxX+0.01||c.y<-0.01||c.y>maxY+0.01) continue;
+    if(overlapsAny(sheetIdx,piece,c.x,c.y,exceptIdx)) continue;
+    const d=(c.x-nx)*(c.x-nx)+(c.y-ny)*(c.y-ny);
+    if(d<bd){ bd=d; best=c; }
+  }
+  return best;
+}
+
+function endDrag(e){
+  if(!drag) return;
+  clearTimeout(drag.timer);
+  document.removeEventListener('pointermove',onDrag);
+  document.removeEventListener('pointerup',endDrag);
+  document.removeEventListener('pointercancel',cancelDrag);
+  liveCanvases.forEach(c=>c.classList.remove('drop-target'));
+
+  if(!drag.lifted){
+    drag.el.classList.remove('armed'); drag=null; return;
+  }
+
+  const el=drag.el, piece=drag.piece;
+  el.style.pointerEvents='none';
+  const target=document.elementFromPoint(drag.lastX,drag.lastY);
+  el.style.pointerEvents='';
+  const tCanvas=target?target.closest('.sheet-canvas'):null;
+
+  if(tCanvas){
+    const toSheet=+tCanvas.dataset.sheet;
+    if(piece.l>settings.L+0.01 || piece.w>settings.W+0.01){
+      toast('⚠️ القطعة أكبر من اللوح — رُفض الإفلات');
+    } else {
+      const cr=tCanvas.getBoundingClientRect();
+      const scale=tCanvas.clientWidth/settings.L;
+      let nx=(drag.lastX-cr.left-drag.offX)/scale;
+      let ny=(drag.lastY-cr.top-drag.offY)/scale;
+      nx=Math.max(0,Math.min(nx, settings.L-piece.l));
+      ny=Math.max(0,Math.min(ny, settings.W-piece.w));
+      const except = (toSheet===drag.fromSheet) ? drag.pi : -1;
+      let pos = magnetSnap(toSheet, piece, nx, ny, except);
+      if(!pos) pos = findFreeSpot(toSheet, piece, nx, ny, except);
+      if(!pos){
+        toast('⚠️ لا يوجد مكان كافٍ في هذا اللوح');
+      } else {
+        piece.x=Math.round(pos.x*10)/10; piece.y=Math.round(pos.y*10)/10;
+        if(toSheet!==drag.fromSheet){
+          layout[drag.fromSheet].pieces.splice(drag.pi,1);
+          layout[toSheet].pieces.push(piece);
+          layout=layout.filter(s=>s.pieces.length>0);
+        }
+      }
+    }
+  }
+  el.classList.remove('lifting'); el.style.position=''; el.style.pointerEvents='';
+  drag=null;
+  refreshLive();
+}
+
+function refreshLive(){
+  const scrollY=window.scrollY;
+  renderResults();
+  window.scrollTo(0,scrollY);
 }
 
 /* ========== Firebase Auth (إجباري) ========== */
@@ -477,14 +655,19 @@ window.onAuthStateChanged(window.auth, (user) => {
   }
 });
 
-/* ========== حفظ محلي ========== */
+/* ========== حفظ محلي (ملف JSON كامل) ========== */
 function saveProjectLocally() {
   if (!layout) { toast('قم بالتحسين أولاً'); return; }
   const data = {
     version: 2,
     exportedAt: new Date().toISOString(),
     planName: settings?.planName || '',
-    pieces, sheetTypes, bandTypes, activeSheetId, layout, settings
+    pieces,                // القطع الأصلية
+    sheetTypes,            // أنواع الألواح
+    bandTypes,             // أنواع التلبيس
+    activeSheetId,         // اللوح النشط
+    layout,                // المخطط الناتج
+    settings               // إعدادات القص
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
   const url = URL.createObjectURL(blob);
@@ -505,7 +688,6 @@ async function doExportPDF(){
   const pdf=new jsPDF('p','mm','a4');
   const pw=210, ph=297, margin=8;
   showProgress(30,'إنشاء الصفحات...');
-  // بناء صفحات مخفية للتصدير
   const rep=$('#pdfReport'); rep.innerHTML='';
   layout.forEach((sheet, i)=>{
     const page=document.createElement('div'); page.className='pdf-page rpt';
