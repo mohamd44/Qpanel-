@@ -15,25 +15,6 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
-  <style>
-    .auth-tab {
-      background: transparent;
-      border: none;
-      border-bottom: 3px solid transparent;
-      padding: 10px 16px;
-      font-weight: 700;
-      font-size: 14px;
-      color: #64748b;
-      cursor: pointer;
-      transition: 0.2s;
-      font-family: inherit;
-    }
-    .auth-tab.active {
-      color: #b5803c;
-      border-bottom-color: #b5803c;
-    }
-    .auth-tab:hover { color: #1f2933; }
-  </style>
 </head>
 <body>
   <header class="app-header">
@@ -46,19 +27,19 @@
     </div>
     <div class="header-actions">
       <button id="btnNew" class="btn">🆕 مشروع جديد</button>
-      <button id="btnLogin" class="btn btn-primary">🔐 تسجيل الدخول</button>
-      <button id="btnLogout" class="btn" style="display:none">🚪 خروج</button>
-      <button id="btnUpdates" class="btn" style="display:none">🔔 ما الجديد</button>
     </div>
   </header>
 
   <main class="layout">
+    <!-- لوحة الإدخال -->
     <aside class="sidebar">
+      <!-- إعدادات اللوح -->
       <section class="card">
         <h2>1) إعدادات العمل والألواح الخام</h2>
         <label class="block">اسم مخطط العمل
           <input type="text" id="planName" placeholder="مثال: مطبخ منزل العميل أحمد">
         </label>
+
         <h3 class="subh">أنواع الألواح الخام (اختر النوع النشط ⊙)</h3>
         <div class="table-wrap">
           <table class="mini-table" id="sheetTable">
@@ -69,6 +50,7 @@
           </table>
         </div>
         <button class="btn btn-sm" id="addSheet">+ إضافة نوع لوح</button>
+
         <div class="grid2" style="margin-top:10px">
           <label>سُمك المنشار/الحرف (سم)<input type="number" id="kerf" placeholder="0" step="0.1" min="0"></label>
           <label>أجرة قص اللوح فقط ($/لوح)<input type="number" id="cutFee" placeholder="0" step="0.01" min="0"></label>
@@ -80,8 +62,10 @@
             <option value="free">حر (يختار التطبيق الأفضل تلقائياً)</option>
           </select>
         </label>
+        <!-- تم حذف خيار السماح بتدوير القطعة -->
       </section>
 
+      <!-- أنواع حرف التلبيس -->
       <section class="card">
         <h2>2) أنواع حرف التلبيس (الأسعار بالدولار $)</h2>
         <table class="mini-table" id="bandTable">
@@ -91,6 +75,7 @@
         <button class="btn btn-sm" id="addBand">+ إضافة نوع</button>
       </section>
 
+      <!-- القطع المطلوبة -->
       <section class="card">
         <div class="pieces-head">
           <h2>3) القطع المطلوبة</h2>
@@ -98,9 +83,11 @@
         </div>
         <div class="table-wrap">
           <table class="mini-table" id="pieceTable">
-            <thead><tr>
-              <th>الطول</th><th>العرض</th><th>العدد</th><th></th>
-            </tr></thead>
+            <thead>
+              <tr>
+                <th>الطول</th><th>العرض</th><th>العدد</th><th></th>
+              </tr>
+            </thead>
             <tbody></tbody>
           </table>
         </div>
@@ -112,6 +99,7 @@
       </section>
     </aside>
 
+    <!-- لوحة النتائج -->
     <section class="results">
       <div id="statsBar" class="stats-bar"></div>
       <div id="emptyState" class="empty-state">
@@ -119,15 +107,19 @@
         <p>أدخل بيانات اللوح والقطع ثم اضغط <b>«توليد المخطط»</b> لرؤية المخططات.</p>
       </div>
       <div id="sheetsArea" class="sheets-area"></div>
-      <p id="dragHint" class="hint hidden">💡 <b>اضغط مع الاستمرار</b> على أي قطعة حتى ترتفع ثم اسحبها...</p>
+      <p id="dragHint" class="hint hidden">💡 <b>اضغط مع الاستمرار</b> على أي قطعة حتى ترتفع ثم اسحبها. عند الإفلات <b>تلتصق مغناطيسياً</b> بحافة أقرب قطعة تاركةً فاصل سُمك المنشار فقط — على خط قص مستقيم. يمكن نقلها بين الألواح وتتحدّث الإحصائيات تلقائياً.</p>
+      <!-- شريط الإجراءات السفلي -->
       <div id="resultsActions" class="results-actions">
         <span class="band-legend"><i class="band-swatch"></i> حرف التلبيس (التقشيط)</span>
         <div class="results-actions-btns">
-  <button id="btnOptimize" class="btn btn-primary btn-lg">⚙️ توليد المخطط</button>
-  <button id="btnPdf" class="btn btn-ghost btn-lg">📄 حفظ المشروع PDF</button>
-</div>
+          <button id="btnOptimize" class="btn btn-primary btn-lg">⚙️ توليد المخطط</button>
+          <button id="btnPdf" class="btn btn-ghost btn-lg">📄 حفظ المشروع PDF</button>
+        </div>
+      </div>
+    </section>
+  </main>
 
-  <!-- النوافذ المخفية -->
+  <!-- باقي النوافذ (بدون تغيير) -->
   <div id="pdfReport" class="pdf-report"></div>
   <div id="toast" class="toast hidden"></div>
   <div id="progressOverlay" class="progress-overlay hidden">
@@ -138,33 +130,6 @@
     </div>
   </div>
   <button id="btnInstall" class="install-fab hidden">⬇️ تثبيت التطبيق على الهاتف</button>
-
-  <!-- نافذة تسجيل الدخول (نموذج ثابت) -->
-  <div id="authModal" class="pdf-modal hidden">
-    <div class="pdf-modal-box" style="max-width:400px">
-      <div class="pdf-modal-head" style="justify-content:center; gap:0; padding:0 0 8px 0; border-bottom:none">
-        <button class="auth-tab active" data-tab="login">تسجيل الدخول</button>
-        <button class="auth-tab" data-tab="signup">إنشاء حساب جديد</button>
-      </div>
-      <div style="padding:14px 16px; display:flex; flex-direction:column; gap:10px">
-        <input type="email" id="authEmail" placeholder="البريد الإلكتروني" style="direction:ltr">
-        <input type="password" id="authPassword" placeholder="كلمة المرور" style="direction:ltr">
-        <button id="authActionBtn" class="btn btn-primary" style="width:100%">دخول</button>
-        <p id="authError" style="color:red; font-size:12px; display:none; margin:0; text-align:center"></p>
-      </div>
-    </div>
-  </div>
-
-  <!-- نافذة التحديثات -->
-  <div id="updatesModal" class="pdf-modal hidden">
-    <div class="pdf-modal-box" style="max-width:480px">
-      <div class="pdf-modal-head">
-        <span class="pdf-modal-title">🔔 آخر التحديثات</span>
-        <button id="updatesClose" class="btn btn-danger" type="button">✕</button>
-      </div>
-      <div style="padding:14px 16px; max-height:60vh; overflow-y:auto" id="updatesContent"></div>
-    </div>
-  </div>
 
   <!-- نافذة خيارات PDF -->
   <div id="pdfOptModal" class="pdf-modal hidden">
@@ -183,6 +148,7 @@
         <label class="chk"><input type="checkbox" id="optCutOrder" checked> ترتيب عمليات القص لكل لوح</label>
         <label class="chk"><input type="checkbox" id="optBanding" checked> تفصيل التلبيس حسب النوع</label>
         <label class="chk"><input type="checkbox" id="optCosts" checked> التكاليف والأسعار</label>
+        <p class="hint">📍 مكان الحفظ: يُحفظ الملف بالاسم أعلاه، ويسألك المتصفح/الجهاز عن مجلد الحفظ عند التنزيل (أو يضعه في مجلد «التنزيلات»).</p>
       </div>
       <div class="pdf-modal-actions pdf-opt-actions">
         <button id="pdfOptGo" class="btn btn-primary btn-lg" type="button">📄 إنشاء وحفظ PDF</button>
@@ -190,7 +156,7 @@
     </div>
   </div>
 
-  <!-- نافذة عرض/حفظ ملف PDF -->
+  <!-- نافذة عرض/حفظ PDF -->
   <div id="pdfModal" class="pdf-modal hidden">
     <div class="pdf-modal-box">
       <div class="pdf-modal-head">
@@ -207,39 +173,24 @@
     </div>
   </div>
 
-  <!-- Firebase SDK -->
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-    import { getFirestore, doc, setDoc, getDoc, collection, query, orderBy, limit, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-
-    const firebaseConfig = {
-      apiKey: "AIzaSyDE5OHG_MbW_fU34hJ2nZllWV-OsA4KLXE",
-      authDomain: "iqpanel-sub.firebaseapp.com",
-      projectId: "iqpanel-sub",
-      storageBucket: "iqpanel-sub.firebasestorage.app",
-      messagingSenderId: "9638341677",
-      appId: "1:9638341677:web:c5ef1f31dc22ca4e9b1ca4"
-    };
-
-    const app = initializeApp(firebaseConfig);
-    window.auth = getAuth(app);
-    window.db = getFirestore(app);
-    window.createUserWithEmailAndPassword = createUserWithEmailAndPassword;
-    window.signInWithEmailAndPassword = signInWithEmailAndPassword;
-    window.onAuthStateChanged = onAuthStateChanged;
-    window.signOut = signOut;
-    window.doc = doc;
-    window.setDoc = setDoc;
-    window.getDoc = getDoc;
-    window.collection = collection;
-    window.query = query;
-    window.orderBy = orderBy;
-    window.limit = limit;
-    window.getDocs = getDocs;
-    window.deleteDoc = deleteDoc;
+  <script src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch(() => {});
+      });
+    }
+    let deferredPrompt = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault(); deferredPrompt = e;
+      document.getElementById('btnInstall').classList.remove('hidden');
+    });
+    document.getElementById('btnInstall').addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt(); await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      document.getElementById('btnInstall').classList.add('hidden');
+    });
   </script>
-
-  <script defer src="app.js"></script>
 </body>
 </html>
