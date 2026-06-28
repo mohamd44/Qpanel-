@@ -10,7 +10,7 @@ const palette = ['#dbe7f5','#fde9d2','#d8f0e0','#f5d8e6','#e7dcf5','#fdf0c8',
 /* ---------------- الحالة (State) ---------------- */
 let bandTypes = [
   { id: 'b1', name: 'PVC 0.4 مم', price: 0.30 },
-  { id: 'b2', name: 'PVC 2 مم',   price: 0.80 },
+  { id: 'b2', name: 'PVC 2 مم',   price: 0.80 },ب
   { id: 'b0', name: 'بدون تلبيس', price: 0.00 },
 ];
 let pieces = [];
@@ -1157,9 +1157,6 @@ async function handleAuthAction() {
 function showAuthModal() {
   const modal = document.getElementById('authModal');
   if (!modal) return;
-  if (!document.getElementById('authActionBtn')) {
-    buildAuthForm();
-  }
   modal.classList.remove('hidden');
   setActiveTab('login');
 }
@@ -1178,16 +1175,16 @@ window.onAuthStateChanged(window.auth, (user) => {
   authReady = true;
 
   if (user) {
-    // user مسجل الدخول - تأكد أن التطبيق يظهر والنموذج مخفي
-    document.querySelector('main.layout').style.display = '';   // يظهر التطبيق (لأنه غير مخفي أصلاً لكن للتأكيد)
-    hideAuthModal();
+    // مستخدم مسجل الدخول
+    document.querySelector('main.layout').style.display = ''; // يظهر التطبيق
+    hideAuthModal(); // يخفي نافذة الدخول
     if ($('#btnLogin')) $('#btnLogin').style.display = 'none';
     if ($('#btnLogout')) $('#btnLogout').style.display = '';
     if ($('#btnUpdates')) $('#btnUpdates').style.display = '';
     checkForUpdates();
   } else {
-    // لا يوجد مستخدم - أظهر نافذة الدخول
-    showAuthModal();
+    // لا يوجد مستخدم
+    showAuthModal(); // يظهر نافذة الدخول
     if ($('#btnLogin')) $('#btnLogin').style.display = 'none';
     if ($('#btnLogout')) $('#btnLogout').style.display = 'none';
     if ($('#btnUpdates')) $('#btnUpdates').style.display = 'none';
