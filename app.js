@@ -1090,61 +1090,80 @@ function hideAuthModal() {
   $('#authError').style.display = 'none';
 }
 
+// منع إغلاق النافذة عند النقر على الخلفية
 document.getElementById('authModal').addEventListener('click', function(e) {
   if (e.target === this) e.stopPropagation();
 });
 
-$('#btnLogin').addEventListener('click', showAuthModal);
+/* ---- التبويبات (تسجيل الدخول / إنشاء حساب) ---- */
+let activeTab = 'login'; // افتراضياً
 
-$('#authLoginBtn').addEventListener('click', async () => {
-  const email = $('#authEmail').value.trim();
-  const password = $('#authPassword').value;
-  if(!email || !password) {
-    $('#authError').textContent = 'الرجاء إدخال البريد وكلمة المرور';
-    $('#authError').style.display = 'block';
-    return;
+function setActiveTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll('.auth-tab').forEach(btn => btn.classList.remove('active'));
+  document.querySelector(`.auth-tab[data-tab="${tab}"]`).classList.add('active');
+  if (tab === 'login') {
+    $('#authActionBtn').textContent = 'دخول';
+  } else {
+    $('#authActionBtn').textContent = 'إنشاء حساب';
   }
-  try {
-    await window.signInWithEmailAndPassword(window.auth, email, password);
-    hideAuthModal();
-    toast('✓ تم تسجيل الدخول');
-  } catch(e) {
-    $('#authError').textContent = 'خطأ: ' + e.message;
-    $('#authError').style.display = 'block';
-  }
+  $('#authError').style.display = 'none';
+}
+
+document.querySelectorAll('.auth-tab').forEach(btn => {
+  btn.addEventListener('click', () => setActiveTab(btn.dataset.tab));
 });
 
-$('#authSignupBtn').addEventListener('click', async () => {
+// تعديل سلوك الزر الموحد
+$('#authActionBtn').addEventListener('click', async () => {
   const email = $('#authEmail').value.trim();
   const password = $('#authPassword').value;
 
-  if(!email || !password) {
+  if (!email || !password) {
     $('#authError').textContent = 'الرجاء إدخال البريد وكلمة المرور';
     $('#authError').style.display = 'block';
     return;
   }
 
-  // تحقق بسيط من صيغة البريد
-  if(!email.includes('@') || !email.includes('.')) {
+  if (!email.includes('@') || !email.includes('.')) {
     $('#authError').textContent = 'صيغة البريد الإلكتروني غير صحيحة';
     $('#authError').style.display = 'block';
     return;
   }
 
-  try {
-    const cred = await window.createUserWithEmailAndPassword(window.auth, email, password);
-    await window.setDoc(window.doc(window.db, 'users', cred.user.uid), {
-      email: email,
-      plan: 'free',
-      createdAt: new Date()
-    });
-    hideAuthModal();
-    toast('✓ تم إنشاء الحساب بنجاح');
-  } catch(e) {
-    $('#authError').textContent = 'خطأ: ' + e.message;
-    $('#authError').style.display = 'block';
+  if (activeTab === 'login') {
+    // تسجيل الدخول
+    try {
+      await window.signInWithEmailAndPassword(window.auth, email, password);
+      hideAuthModal();
+      toast('✓ تم تسجيل الدخول');
+    } catch (e) {
+      $('#authError').textContent = 'خطأ: ' + e.message;
+      $('#authError').style.display = 'block';
+    }
+  } else {
+    // إنشاء حساب جديد
+    try {
+      const cred = await window.createUserWithEmailAndPassword(window.auth, email, password);
+      await window.setDoc(window.doc(window.db, 'users', cred.user.uid), {
+        email: email,
+        plan: 'free',
+        createdAt: new Date()
+      });
+      hideAuthModal();
+      toast('✓ تم إنشاء الحساب بنجاح');
+    } catch (e) {
+      if (e.code === 'auth/email-already-in-use') {
+        $('#authError').textContent = 'البريد الإلكتروني مسجل مسبقاً. استخدم تسجيل الدخول.';
+      } else {
+        $('#authError').textContent = 'خطأ: ' + e.message;
+      }
+      $('#authError').style.display = 'block';
+    }
   }
 });
+
+$('#btnLogin').addEventListener('click', showAuthModal);
 
 $('#btnLogout').addEventListener('click', async () => {
   try {
