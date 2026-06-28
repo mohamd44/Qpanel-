@@ -246,6 +246,7 @@ function optimize(){
     let best=null,score=Infinity,rot=false;
     for(const fr of s.free){
       if(fits(fr,it._l,it._w)){ const sc=Math.min(fr.w-it._l,fr.h-it._w); if(sc<score){score=sc;best=fr;rot=false;} }
+      // allowRotate دائماً false، لذا لن يدخل الشرط التالي
       if(allowRotate && fits(fr,it._w,it._l)){ const sc=Math.min(fr.w-it._w,fr.h-it._l); if(sc<score){score=sc;best=fr;rot=true;} }
     }
     if(!best) return false;
@@ -435,7 +436,7 @@ function positionPieces(canvas, scale){
                   ${small?'':`<span class="pname">${p.name}${p.rot?' ⟳':''}</span>`}`;
     const de=displayEdges(p);
     ['t','b','l','r'].forEach(s=>{ if(de[s]){ const bd=document.createElement('span'); bd.className='band '+s; el.appendChild(bd);} });
-    if(canvas._interactive){ el.addEventListener('pointerdown', startDrag); }
+    if(canvas._interactive){ el.addEventListener('pointerdown',startDrag); }
     canvas.appendChild(el);
   });
   markOverlaps(canvas);
@@ -699,8 +700,7 @@ function drawSheetToCanvasEl(sheet, idx, s){
   ctx.scale(dpr,dpr);
   ctx.direction='ltr';
   ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,Wpx+MR,Hpx+MB);
-  // تم إزالة الإطار الخارجي حول اللوح
-  // ctx.lineWidth=2; ctx.strokeStyle='#8a5e26'; ctx.strokeRect(1,1,Wpx-2,Hpx-2); 
+  // إطار خارجي محذوف
   ctx.textAlign='center'; ctx.textBaseline='middle';
   recomputeWaste(sheet).forEach(w=>{
     const x=w.x*s,y=w.y*s,ww=w.w*s,hh=w.h*s;
