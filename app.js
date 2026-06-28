@@ -95,9 +95,11 @@ function renderBandTable(){
   tb.querySelectorAll('input').forEach(inp=>inp.addEventListener('input',e=>{
     const b=bandTypes.find(x=>x.id===e.target.dataset.id); const f=e.target.dataset.f;
     b[f] = f==='price' ? (parseFloat(e.target.value)||0) : e.target.value;
+    scheduleSave();
   }));
   tb.querySelectorAll('[data-del]').forEach(btn=>btn.addEventListener('click',e=>{
     bandTypes=bandTypes.filter(x=>x.id!==e.target.dataset.del); renderBandTable(); renderPieceTable();
+    scheduleSave();
   }));
 }
 
@@ -119,14 +121,16 @@ function renderSheetTable(){
   tb.querySelectorAll('input[data-f]').forEach(inp=>inp.addEventListener('input',e=>{
     const s=sheetTypes.find(x=>x.id===e.target.dataset.id); const f=e.target.dataset.f;
     s[f]=['l','w','qty','price'].includes(f)?(e.target.value===''?null:parseFloat(e.target.value)):e.target.value;
+    scheduleSave();
   }));
-  tb.querySelectorAll('[data-active]').forEach(r=>r.addEventListener('change',e=>{ activeSheetId=e.target.dataset.active; }));
+  tb.querySelectorAll('[data-active]').forEach(r=>r.addEventListener('change',e=>{ activeSheetId=e.target.dataset.active; scheduleSave(); }));
   tb.querySelectorAll('[data-del]').forEach(btn=>btn.addEventListener('click',e=>{
     if(sheetTypes.length<=1){ toast('يجب إبقاء نوع لوح واحد على الأقل'); return; }
     const id=e.target.dataset.del;
     sheetTypes=sheetTypes.filter(x=>x.id!==id);
     if(activeSheetId===id) activeSheetId=sheetTypes[0].id;
     renderSheetTable();
+    scheduleSave();
   }));
 }
 
@@ -170,12 +174,14 @@ function renderPieceTable(){
   tb.querySelectorAll('input,select').forEach(inp=>inp.addEventListener('input',e=>{
     const p=pieces.find(x=>x.id===e.target.dataset.id); const f=e.target.dataset.f;
     p[f]=['l','w','qty'].includes(f)?(e.target.value===''?null:parseFloat(e.target.value)):e.target.value;
+    scheduleSave();
   }));
   tb.querySelectorAll('.edge-btn').forEach(btn=>{
     btn.addEventListener('pointerdown',e=>{
       e.preventDefault();
       const p=pieces.find(x=>x.id===btn.dataset.id); const k=btn.dataset.e;
       if(!p) return; p.edges[k]=!p.edges[k]; btn.classList.toggle('on',p.edges[k]);
+      scheduleSave();
     });
   });
   tb.querySelectorAll('[data-del]').forEach(btn=>{
@@ -184,6 +190,7 @@ function renderPieceTable(){
       const delId=e.currentTarget.dataset.del;
       const idx=pieces.findIndex(x=>x.id===delId);
       pieces=pieces.filter(x=>x.id!==delId); renderPieceTable();
+      scheduleSave();
       if(pieces.length){
         const ni=Math.min(idx, pieces.length-1);
         const inp=document.querySelector(`#pieceTable tbody input[data-id="${pieces[ni].id}"][data-f="l"]`);
@@ -262,7 +269,6 @@ function optimize(){
 
   renderResults();
   saveState();
-  saveProjectToCloud(); // حفظ سحابي
 }
 
 /* ---------------- حساب الإحصائيات ---------------- */
@@ -280,7 +286,7 @@ function renderResults(){
   const area=$('#sheetsArea'); area.innerHTML='';
   if(!layout||!layout.length){ $('#emptyState').classList.remove('hidden'); return; }
   $('#emptyState').classList.add('hidden');
-  // رسم المخططات يظهر هنا (موجود في النسخة الكاملة سابقاً، تم اختصاره مؤقتاً للتركيز على الأزرار)
+  // هنا يتم رسم المخططات (يمكن تركه فارغاً في الوقت الحالي)
 }
 
 /* ========== Firebase Auth (إجباري) ========== */
@@ -377,7 +383,6 @@ window.onAuthStateChanged(window.auth, (user) => {
 /* ========== حفظ سحابي (اختياري) ========== */
 async function saveProjectToCloud() {
   if (!currentUser || !layout) return;
-  // الكود المختصر للحفظ (يمكن تجاهله إن لم ترد السحابة الآن)
 }
 
 /* ========== حفظ محلي ========== */
@@ -399,20 +404,52 @@ function saveProjectLocally() {
   toast('✓ تم تنزيل المشروع محلياً');
 }
 
+/* ========== مشروع جديد (إعادة تعيين) ========== */
+function resetProject(){
+  if(!confirm('بدء مشروع جديد سيحذف كل البيانات الحالية (الاسم، الأنواع، القطع، الإعدادات والمخطط). هل تريد المتابعة؟')) return;
+  try{ localStorage.removeItem(LS_KEY); }catch(_){}
+  pieces = [];
+  sheetTypes = [ { id:'s1', name:'لوح', l:null, w:null, qty:null, price:null } ];
+  bandTypes = [
+    { id: 'b1', name: 'PVC 0.4 مم', price: 0.30 },
+    { id: 'b2', name: 'PVC 2 مم',   price: 0.80 },
+    { id: 'b0', name: 'بدون تلبيس', price: 0.00 },
+  ];
+  activeSheetId = 's1';
+  layout = null;
+  settings = null;
+  showExtra = false;
+  applyExtraToggleUI();
+  // مسح الحقول النصية
+  const pn=$('#planName'); if(pn) pn.value='';
+  const kf=$('#kerf'); if(kf) kf.value='';
+  const cf=$('#cutFee'); if(cf) cf.value='';
+  const cd=$('#cutDir'); if(cd) cd.value='length';
+  renderSheetTable();
+  renderBandTable();
+  renderPieceTable();
+  renderResults();
+  window.scrollTo(0,0);
+  toast('✓ تم بدء مشروع جديد');
+}
+
 /* ========== ربط جميع الأزرار ========== */
 $('#addBand').addEventListener('click', ()=>{
   bandTypes.push({id:nid(), name:'نوع جديد', price:0.5});
   renderBandTable();
   renderPieceTable();
+  scheduleSave();
 });
 $('#addSheet').addEventListener('click', ()=>{
   sheetTypes.push({id:nid(), name:'لوح', l:null, w:null, qty:null, price:null});
   renderSheetTable();
+  scheduleSave();
 });
 $('#addPiece').addEventListener('click', ()=>{
   const id = nid();
   pieces.push({id, name:'', l:null, w:null, qty:null, bandId:bandTypes[0]?.id, edges:{t:false,b:false,l:false,r:false}});
   renderPieceTable();
+  scheduleSave();
 });
 $('#addPiece10')?.addEventListener('click', ()=>{
   for(let i=0;i<10;i++){
@@ -421,6 +458,7 @@ $('#addPiece10')?.addEventListener('click', ()=>{
   }
   renderPieceTable();
   toast('✓ تمت إضافة ١٠ صفوف');
+  scheduleSave();
 });
 
 const btnExtra = $('#toggleExtra');
@@ -429,46 +467,57 @@ if (btnExtra) {
     showExtra = !showExtra;
     applyExtraToggleUI();
     renderPieceTable();
+    scheduleSave();
   });
 }
 applyExtraToggleUI();
 
+// زر مشروع جديد
+$('#btnNew').addEventListener('click', resetProject);
+
 // الأزرار الرئيسية
 $('#btnOptimize').addEventListener('click', optimize);
 $('#btnPdf').addEventListener('click', ()=>{
-  // فتح نافذة خيارات PDF
-  openPdfOptions();
+  if(!layout||!layout.length){ toast('قم بالتحسين أولاً'); return; }
+  $('#pdfOptModal').classList.remove('hidden');
 });
 $('#btnSaveLocal').addEventListener('click', saveProjectLocally);
 
-function openPdfOptions(){
-  if(!layout||!layout.length){ toast('قم بالتحسين أولاً'); return; }
-  $('#pdfOptModal').classList.remove('hidden');
-}
 // إغلاق نافذة خيارات PDF
 $('#pdfOptCancel')?.addEventListener('click', ()=> $('#pdfOptModal').classList.add('hidden'));
-// زر إنشاء PDF
 $('#pdfOptGo')?.addEventListener('click', ()=>{
   $('#pdfOptModal').classList.add('hidden');
-  doExportPDF();
+  toast('سيتم تفعيل تصدير PDF لاحقاً');
 });
 
-// دالة تصدير PDF (نسخة مختصرة)
-async function doExportPDF(){
-  if(!layout||!layout.length) return;
-  toast('سيتم تفعيل تصدير PDF لاحقاً');
+/* ========== تحميل البيانات عند بدء التشغيل ========== */
+function initApp() {
+  const saved = loadState();
+  // استعادة قيم الحقول النصية
+  if (saved) {
+    const setV = (id, v) => { const el = $('#'+id); if (el && v != null && v !== '') el.value = v; };
+    setV('planName', saved.planName);
+    setV('kerf', saved.kerf);
+    setV('cutFee', saved.cutFee);
+    if (saved.cutDir) {
+      const cd = $('#cutDir');
+      if (cd) cd.value = saved.cutDir;
+    }
+  }
+  applyExtraToggleUI();
+  renderSheetTable();
+  renderBandTable();
+  renderPieceTable();
+  if (layout && layout.length) renderResults();
 }
 
-/* ========== استدعاء الجداول ========== */
-document.addEventListener('DOMContentLoaded', () => {
-  renderSheetTable();
-  renderBandTable();
-  renderPieceTable();
-  if (layout && layout.length) renderResults();
+document.addEventListener('DOMContentLoaded', initApp);
+// احتياط في حال تأخر الـ DOM
+setTimeout(initApp, 10);
+
+// حفظ عند أي تغيير في الحقول النصية
+['planName','kerf','cutFee','cutDir'].forEach(id => {
+  const el = $('#'+id);
+  if (el) el.addEventListener('input', scheduleSave);
+  if (el) el.addEventListener('change', scheduleSave);
 });
-setTimeout(() => {
-  renderSheetTable();
-  renderBandTable();
-  renderPieceTable();
-  if (layout && layout.length) renderResults();
-}, 10);
