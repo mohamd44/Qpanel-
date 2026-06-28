@@ -137,21 +137,19 @@
 
   <!-- نافذة تسجيل الدخول (إجبارية – بدون زر إغلاق) -->
   <div id="authModal" class="pdf-modal">
-    <div class="pdf-modal-box" style="max-width:380px">
-      <div class="pdf-modal-head">
-        <span class="pdf-modal-title">🔐 تسجيل الدخول مطلوب</span>
-      </div>
-      <div style="padding:14px 16px; display:flex; flex-direction:column; gap:10px">
-        <input type="email" id="authEmail" placeholder="البريد الإلكتروني" style="direction:ltr">
-        <input type="password" id="authPassword" placeholder="كلمة المرور" style="direction:ltr">
-        <div style="display:flex; gap:8px; justify-content:space-between">
-          <button id="authLoginBtn" class="btn btn-primary" style="flex:1">دخول</button>
-          <button id="authSignupBtn" class="btn" style="flex:1">إنشاء حساب</button>
-        </div>
-        <p id="authError" style="color:red; font-size:12px; display:none; margin:0"></p>
-      </div>
+  <div class="pdf-modal-box" style="max-width:400px">
+    <div class="pdf-modal-head" style="justify-content:center; gap:0; padding:0 0 8px 0; border-bottom:none">
+      <button class="auth-tab active" data-tab="login">تسجيل الدخول</button>
+      <button class="auth-tab" data-tab="signup">إنشاء حساب جديد</button>
+    </div>
+    <div style="padding:14px 16px; display:flex; flex-direction:column; gap:10px">
+      <input type="email" id="authEmail" placeholder="البريد الإلكتروني" style="direction:ltr">
+      <input type="password" id="authPassword" placeholder="كلمة المرور" style="direction:ltr">
+      <button id="authActionBtn" class="btn btn-primary" style="width:100%">دخول</button>
+      <p id="authError" style="color:red; font-size:12px; display:none; margin:0; text-align:center"></p>
     </div>
   </div>
+</div>
 
   <!-- نافذة التحديثات -->
   <div id="updatesModal" class="pdf-modal hidden">
