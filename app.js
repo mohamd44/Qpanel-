@@ -1079,70 +1079,79 @@ document.addEventListener('change', scheduleSave);
 
 /* ========== Firebase Auth (إجباري) ========== */
 let currentUser = null;
+let authReady = false;
 
-function showAuthModal() {
-  $('#authModal').classList.remove('hidden');
+// نموذج تسجيل الدخول/إنشاء الحساب (سيُحقن عند الحاجة)
+const AUTH_FORM_HTML = `
+  <div class="pdf-modal-head" style="justify-content:center; gap:0; padding:0 0 8px 0; border-bottom:none">
+    <button class="auth-tab active" data-tab="login">تسجيل الدخول</button>
+    <button class="auth-tab" data-tab="signup">إنشاء حساب جديد</button>
+  </div>
+  <div style="padding:14px 16px; display:flex; flex-direction:column; gap:10px">
+    <input type="email" id="authEmail" placeholder="البريد الإلكتروني" style="direction:ltr">
+    <input type="password" id="authPassword" placeholder="كلمة المرور" style="direction:ltr">
+    <button id="authActionBtn" class="btn btn-primary" style="width:100%">دخول</button>
+    <p id="authError" style="color:red; font-size:12px; display:none; margin:0; text-align:center"></p>
+  </div>
+`;
+
+// دالة مساعدة لبناء واجهة الدخول داخل النافذة
+function buildAuthForm() {
+  const modalBox = document.querySelector('#authModal .pdf-modal-box');
+  if (!modalBox) return;
+  modalBox.innerHTML = AUTH_FORM_HTML;
+  // تفعيل التبويبات
+  initAuthTabs();
 }
-function hideAuthModal() {
-  $('#authModal').classList.add('hidden');
-  $('#authEmail').value = '';
-  $('#authPassword').value = '';
-  $('#authError').style.display = 'none';
+
+let activeTab = 'login';
+function initAuthTabs() {
+  document.querySelectorAll('.auth-tab').forEach(btn => {
+    btn.addEventListener('click', () => setActiveTab(btn.dataset.tab));
+  });
+  // زر موحد
+  const actionBtn = document.getElementById('authActionBtn');
+  if (actionBtn) {
+    actionBtn.addEventListener('click', handleAuthAction);
+  }
 }
-
-// منع إغلاق النافذة عند النقر على الخلفية
-document.getElementById('authModal').addEventListener('click', function(e) {
-  if (e.target === this) e.stopPropagation();
-});
-
-/* ---- التبويبات (تسجيل الدخول / إنشاء حساب) ---- */
-let activeTab = 'login'; // افتراضياً
 
 function setActiveTab(tab) {
   activeTab = tab;
   document.querySelectorAll('.auth-tab').forEach(btn => btn.classList.remove('active'));
-  document.querySelector(`.auth-tab[data-tab="${tab}"]`).classList.add('active');
-  if (tab === 'login') {
-    $('#authActionBtn').textContent = 'دخول';
-  } else {
-    $('#authActionBtn').textContent = 'إنشاء حساب';
+  const target = document.querySelector(`.auth-tab[data-tab="${tab}"]`);
+  if (target) target.classList.add('active');
+  const actionBtn = document.getElementById('authActionBtn');
+  if (actionBtn) {
+    actionBtn.textContent = tab === 'login' ? 'دخول' : 'إنشاء حساب';
   }
-  $('#authError').style.display = 'none';
+  const errEl = document.getElementById('authError');
+  if (errEl) errEl.style.display = 'none';
 }
 
-document.querySelectorAll('.auth-tab').forEach(btn => {
-  btn.addEventListener('click', () => setActiveTab(btn.dataset.tab));
-});
-
-// تعديل سلوك الزر الموحد
-$('#authActionBtn').addEventListener('click', async () => {
-  const email = $('#authEmail').value.trim();
-  const password = $('#authPassword').value;
+async function handleAuthAction() {
+  const email = document.getElementById('authEmail')?.value.trim() || '';
+  const password = document.getElementById('authPassword')?.value || '';
+  const errEl = document.getElementById('authError');
 
   if (!email || !password) {
-    $('#authError').textContent = 'الرجاء إدخال البريد وكلمة المرور';
-    $('#authError').style.display = 'block';
+    if (errEl) { errEl.textContent = 'الرجاء إدخال البريد وكلمة المرور'; errEl.style.display = 'block'; }
     return;
   }
-
   if (!email.includes('@') || !email.includes('.')) {
-    $('#authError').textContent = 'صيغة البريد الإلكتروني غير صحيحة';
-    $('#authError').style.display = 'block';
+    if (errEl) { errEl.textContent = 'صيغة البريد غير صحيحة'; errEl.style.display = 'block'; }
     return;
   }
 
   if (activeTab === 'login') {
-    // تسجيل الدخول
     try {
       await window.signInWithEmailAndPassword(window.auth, email, password);
-      hideAuthModal();
       toast('✓ تم تسجيل الدخول');
+      // عند النجاح، سيخفيها onAuthStateChanged
     } catch (e) {
-      $('#authError').textContent = 'خطأ: ' + e.message;
-      $('#authError').style.display = 'block';
+      if (errEl) { errEl.textContent = 'خطأ: ' + e.message; errEl.style.display = 'block'; }
     }
   } else {
-    // إنشاء حساب جديد
     try {
       const cred = await window.createUserWithEmailAndPassword(window.auth, email, password);
       await window.setDoc(window.doc(window.db, 'users', cred.user.uid), {
@@ -1150,149 +1159,70 @@ $('#authActionBtn').addEventListener('click', async () => {
         plan: 'free',
         createdAt: new Date()
       });
-      hideAuthModal();
       toast('✓ تم إنشاء الحساب بنجاح');
     } catch (e) {
-      if (e.code === 'auth/email-already-in-use') {
-        $('#authError').textContent = 'البريد الإلكتروني مسجل مسبقاً. استخدم تسجيل الدخول.';
-      } else {
-        $('#authError').textContent = 'خطأ: ' + e.message;
+      if (errEl) {
+        errEl.textContent = e.code === 'auth/email-already-in-use' 
+          ? 'البريد الإلكتروني مسجل مسبقاً. استخدم تسجيل الدخول.' 
+          : 'خطأ: ' + e.message;
+        errEl.style.display = 'block';
       }
-      $('#authError').style.display = 'block';
     }
   }
-});
+}
 
-$('#btnLogin').addEventListener('click', showAuthModal);
+function showAuthModal() {
+  const modal = document.getElementById('authModal');
+  if (!modal) return;
+  // إذا لم يكن النموذج مبنيًا بعد، نبنيه
+  if (!document.getElementById('authActionBtn')) {
+    buildAuthForm();
+  }
+  modal.classList.remove('hidden');
+  // إعادة تعيين التبويب الافتراضي
+  setActiveTab('login');
+}
 
-$('#btnLogout').addEventListener('click', async () => {
+function hideAuthModal() {
+  const modal = document.getElementById('authModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+$('#btnLogin')?.addEventListener('click', showAuthModal);
+
+$('#btnLogout')?.addEventListener('click', async () => {
   try {
     await window.signOut(window.auth);
     toast('✓ تم تسجيل الخروج');
-  } catch(e) {
+  } catch (e) {
     toast('خطأ في الخروج: ' + e.message);
   }
 });
 
+// منع إغلاق النافذة بالنقر على الخلفية
+document.getElementById('authModal')?.addEventListener('click', function(e) {
+  if (e.target === this) e.stopPropagation();
+});
+
+// مراقب حالة المصادقة
 window.onAuthStateChanged(window.auth, (user) => {
   currentUser = user;
+  authReady = true;
+
   if (user) {
+    // مستخدم مسجل الدخول
     document.querySelector('main.layout').style.display = '';
-    $('#authModal').classList.add('hidden');
-    $('#btnLogin').style.display = 'none';
-    $('#btnLogout').style.display = '';
-    $('#btnUpdates').style.display = '';
+    hideAuthModal();
+    if ($('#btnLogin')) $('#btnLogin').style.display = 'none';
+    if ($('#btnLogout')) $('#btnLogout').style.display = '';
+    if ($('#btnUpdates')) $('#btnUpdates').style.display = '';
     checkForUpdates();
   } else {
+    // لا يوجد مستخدم – نعرض واجهة الدخول (بدون نموذج إن لم يُبنى بعد)
     document.querySelector('main.layout').style.display = 'none';
-    $('#authModal').classList.remove('hidden');
-    $('#btnLogin').style.display = 'none';
-    $('#btnLogout').style.display = 'none';
-    $('#btnUpdates').style.display = 'none';
-    $('#authEmail').value = '';
-    $('#authPassword').value = '';
-    $('#authError').style.display = 'none';
+    showAuthModal();
+    if ($('#btnLogin')) $('#btnLogin').style.display = 'none';
+    if ($('#btnLogout')) $('#btnLogout').style.display = 'none';
+    if ($('#btnUpdates')) $('#btnUpdates').style.display = 'none';
   }
-});
-
-/* ========== حفظ سحابي مع حد 2 للمجاني ========== */
-async function saveProjectToCloud() {
-  if (!currentUser || !layout) return;
-  const db = window.db;
-  const projectsRef = window.collection(db, 'users', currentUser.uid, 'projects');
-  
-  const qSnap = await window.getDocs(window.query(projectsRef, window.orderBy('createdAt', 'desc')));
-  const currentCount = qSnap.size;
-  
-  const userDoc = await window.getDoc(window.doc(db, 'users', currentUser.uid));
-  const plan = userDoc.exists() ? (userDoc.data().plan || 'free') : 'free';
-  
-  if (plan === 'free' && currentCount >= 2) {
-    toast('⚠️ وصلت للحد الأقصى (2) للمشاريع السحابية. استخدم "حفظ محلياً" أو ترقَّ.');
-    return;
-  }
-  
-  const projectId = (settings?.planName || 'default').replace(/\s+/g, '_') + '_' + Date.now();
-  try {
-    await window.setDoc(window.doc(db, 'users', currentUser.uid, 'projects', projectId), {
-      name: settings?.planName || 'مشروع بدون اسم',
-      pieces, sheetTypes, bandTypes, activeSheetId, layout, settings,
-      createdAt: new Date()
-    });
-    toast('✓ تم حفظ المشروع في السحابة');
-  } catch (e) {
-    toast('فشل الحفظ السحابي');
-  }
-}
-
-/* ========== حفظ محلي (ملف JSON) ========== */
-function saveProjectLocally() {
-  if (!layout) { toast('قم بالتحسين أولاً'); return; }
-  const data = {
-    version: 2,
-    exportedAt: new Date().toISOString(),
-    planName: settings?.planName || '',
-    pieces, sheetTypes, bandTypes, activeSheetId, layout, settings
-  };
-  const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = (settings?.planName || 'مشروع') + '.iqpanel.json';
-  a.click();
-  URL.revokeObjectURL(url);
-  toast('✓ تم تنزيل المشروع محلياً');
-}
-
-/* ========== نظام التحديثات (ما الجديد) ========== */
-let lastSeenVersion = localStorage.getItem('iqpanel_last_version') || '0';
-
-async function loadUpdates() {
-  const db = window.db;
-  const updatesRef = window.collection(db, 'updates');
-  const qSnap = await window.getDocs(window.query(updatesRef, window.orderBy('date', 'desc'), window.limit(5)));
-  const updates = [];
-  qSnap.forEach(doc => updates.push(doc.data()));
-  return updates;
-}
-
-function showUpdatesModal(updates) {
-  const content = $('#updatesContent');
-  if (!updates.length) {
-    content.innerHTML = '<p style="color:#64748b">لا توجد تحديثات بعد.</p>';
-  } else {
-    content.innerHTML = updates.map((u, i) => {
-      const d = u.date ? new Date(u.date.seconds * 1000).toLocaleDateString('ar-EG') : '';
-      return `
-        <div class="update-item" style="border-bottom:1px solid #e2e8f0; padding:10px 0;">
-          <div style="display:flex; justify-content:space-between; align-items:center">
-            <strong style="color:#0f766e">${u.title || 'تحديث'}</strong>
-            <span style="font-size:11px; color:#94a3b8">${d}</span>
-          </div>
-          <div style="white-space:pre-line; font-size:13px; color:#334155; margin-top:6px">${u.body || ''}</div>
-        </div>`;
-    }).join('');
-  }
-  $('#updatesModal').classList.remove('hidden');
-}
-
-async function checkForUpdates() {
-  const updates = await loadUpdates();
-  if (updates.length > 0) {
-    const latestVersion = updates[0].version || '';
-    if (latestVersion && latestVersion !== lastSeenVersion) {
-      showUpdatesModal(updates);
-      lastSeenVersion = latestVersion;
-      localStorage.setItem('iqpanel_last_version', latestVersion);
-    }
-  }
-}
-
-$('#btnUpdates').addEventListener('click', async () => {
-  const updates = await loadUpdates();
-  showUpdatesModal(updates);
-});
-
-$('#updatesClose').addEventListener('click', () => {
-  $('#updatesModal').classList.add('hidden');
 });
