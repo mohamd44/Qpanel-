@@ -1117,11 +1117,20 @@ $('#authLoginBtn').addEventListener('click', async () => {
 $('#authSignupBtn').addEventListener('click', async () => {
   const email = $('#authEmail').value.trim();
   const password = $('#authPassword').value;
+
   if(!email || !password) {
     $('#authError').textContent = 'الرجاء إدخال البريد وكلمة المرور';
     $('#authError').style.display = 'block';
     return;
   }
+
+  // تحقق بسيط من صيغة البريد
+  if(!email.includes('@') || !email.includes('.')) {
+    $('#authError').textContent = 'صيغة البريد الإلكتروني غير صحيحة';
+    $('#authError').style.display = 'block';
+    return;
+  }
+
   try {
     const cred = await window.createUserWithEmailAndPassword(window.auth, email, password);
     await window.setDoc(window.doc(window.db, 'users', cred.user.uid), {
