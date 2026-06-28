@@ -68,7 +68,7 @@ function _readInputs(){ return {
   kerf:($('#kerf')&&$('#kerf').value)||'',
   cutFee:($('#cutFee')&&$('#cutFee').value)||'',
   cutDir:($('#cutDir')&&$('#cutDir').value)||'length',
-  allowRotate: false
+  allowRotate: false // ملغى نهائياً
 }; }
 function saveState(){ try{ localStorage.setItem(LS_KEY, JSON.stringify({pieces,sheetTypes,bandTypes,activeSheetId,showExtra,layout,settings,uid,inputs:_readInputs()})); }catch(_){} }
 let _saveT=null; function scheduleSave(){ clearTimeout(_saveT); _saveT=setTimeout(saveState,400); }
@@ -229,7 +229,7 @@ function renderPieceTable(){
 function optimize(){
   const at=sheetTypes.find(s=>s.id===activeSheetId)||sheetTypes[0];
   const L=+at.l, W=+at.w, qty=+at.qty||0;
-  const kerf=+$('#kerf').value||0, cutDir=$('#cutDir').value, allowRotate=false;
+  const kerf=+$('#kerf').value||0, cutDir=$('#cutDir').value, allowRotate=false; // التدوير ملغى نهائياً
   const cutFee=+$('#cutFee').value||0, planName=$('#planName').value.trim();
   if(!(L>0&&W>0)){ toast('أدخل أبعاد لوح صحيحة في جدول الأنواع'); return; }
   settings={L,W,qty,kerf,cutDir,allowRotate,colorize:false,sheetPrice:+at.price||0,sheetName:(at.name||'لوح'),cutFee,planName};
@@ -300,56 +300,7 @@ function optimize(){
 
   renderResults();
   saveState();
-  saveProjectToCloud(); // محاولة حفظ سحابي (قد تُرفض إذا تجاوز الحد)
-}
-
-/* ---------------- حفظ سحابي مع حد 2 للمجاني ---------------- */
-async function saveProjectToCloud() {
-  if (!currentUser || !layout) return;
-  const db = window.db;
-  const projectsRef = collection(db, 'users', currentUser.uid, 'projects');
-  
-  const qSnap = await getDocs(query(projectsRef, orderBy('createdAt', 'desc')));
-  const currentCount = qSnap.size;
-  
-  const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-  const plan = userDoc.exists() ? (userDoc.data().plan || 'free') : 'free';
-  
-  if (plan === 'free' && currentCount >= 2) {
-    toast('⚠️ وصلت للحد الأقصى (2) للمشاريع السحابية. استخدم "حفظ محلياً" أو ترقَّ.');
-    return;
-  }
-  
-  const projectId = (settings?.planName || 'default').replace(/\s+/g, '_') + '_' + Date.now();
-  try {
-    await setDoc(doc(db, 'users', currentUser.uid, 'projects', projectId), {
-      name: settings?.planName || 'مشروع بدون اسم',
-      pieces, sheetTypes, bandTypes, activeSheetId, layout, settings,
-      createdAt: new Date()
-    });
-    toast('✓ تم حفظ المشروع في السحابة');
-  } catch (e) {
-    toast('فشل الحفظ السحابي');
-  }
-}
-
-/* ---------------- حفظ محلي (ملف JSON) ---------------- */
-function saveProjectLocally() {
-  if (!layout) { toast('قم بالتحسين أولاً'); return; }
-  const data = {
-    version: 2,
-    exportedAt: new Date().toISOString(),
-    planName: settings?.planName || '',
-    pieces, sheetTypes, bandTypes, activeSheetId, layout, settings
-  };
-  const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = (settings?.planName || 'مشروع') + '.iqpanel.json';
-  a.click();
-  URL.revokeObjectURL(url);
-  toast('✓ تم تنزيل المشروع محلياً');
+  saveProjectToCloud(); // حفظ سحابي تلقائي
 }
 
 /* ---------------- حساب الإحصائيات ---------------- */
@@ -739,7 +690,7 @@ function _band(ctx,x,y,w,h){
   ctx.restore();
 }
 function drawSheetToCanvasEl(sheet, idx, s){
-  const MR=44, MB=40;
+  const MR=44, MB=40;   // هوامش أكبر لمنع التداخل
   const cv=document.createElement('canvas');
   const Wpx=Math.max(1,Math.round(settings.L*s)), Hpx=Math.max(1,Math.round(settings.W*s));
   const dpr=2;
@@ -749,6 +700,7 @@ function drawSheetToCanvasEl(sheet, idx, s){
   ctx.scale(dpr,dpr);
   ctx.direction='ltr';
   ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,Wpx+MR,Hpx+MB);
+  // إطار خارجي محذوف
   ctx.textAlign='center'; ctx.textBaseline='middle';
   recomputeWaste(sheet).forEach(w=>{
     const x=w.x*s,y=w.y*s,ww=w.w*s,hh=w.h*s;
@@ -788,14 +740,14 @@ function drawSheetToCanvasEl(sheet, idx, s){
   ctx.save();
   ctx.strokeStyle='#a8706f'; ctx.fillStyle='#a8706f'; ctx.lineWidth=1.2;
   ctx.textAlign='center'; ctx.textBaseline='middle';
-  const by=Hpx+22;
+  const by=Hpx+22;   // مسافة أكبر للمسطرة السفلية
   ctx.beginPath(); ctx.moveTo(0,by); ctx.lineTo(Wpx,by); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(0,by-4); ctx.lineTo(0,by+4); ctx.moveTo(Wpx,by-4); ctx.lineTo(Wpx,by+4); ctx.stroke();
   ctx.font='600 16px Cairo, Arial, sans-serif';
   const lt=fmtNum(settings.L)+''; const ltw=ctx.measureText(lt).width;
   ctx.fillStyle='#ffffff'; ctx.fillRect(Wpx/2-ltw/2-5, by-10, ltw+10, 20);
   ctx.fillStyle='#a8706f'; ctx.fillText(lt, Wpx/2, by);
-  const rx=Wpx+22;
+  const rx=Wpx+22;   // مسافة أكبر للمسطرة الجانبية
   ctx.beginPath(); ctx.moveTo(rx,0); ctx.lineTo(rx,Hpx); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(rx-4,0); ctx.lineTo(rx+4,0); ctx.moveTo(rx-4,Hpx); ctx.lineTo(rx+4,Hpx); ctx.stroke();
   ctx.save(); ctx.translate(rx, Hpx/2); ctx.rotate(-Math.PI/2);
@@ -806,7 +758,7 @@ function drawSheetToCanvasEl(sheet, idx, s){
   return cv;
 }
 
-/* ---------------- تصدير PDF ---------------- */
+/* ---------------- تصدير PDF (تصميم أنيق + مؤشر تقدم) ---------------- */
 async function doExportPDF(opts){
   opts=opts||{summary:true,sheetData:true,cutOrder:true,banding:true,costs:true};
   if(!layout||!layout.length){ toast('قم بالتحسين أولاً'); return; }
@@ -1153,7 +1105,7 @@ $('#authLoginBtn').addEventListener('click', async () => {
     return;
   }
   try {
-    await signInWithEmailAndPassword(window.auth, email, password);
+    await window.signInWithEmailAndPassword(window.auth, email, password);
     hideAuthModal();
     toast('✓ تم تسجيل الدخول');
   } catch(e) {
@@ -1171,8 +1123,8 @@ $('#authSignupBtn').addEventListener('click', async () => {
     return;
   }
   try {
-    const cred = await createUserWithEmailAndPassword(window.auth, email, password);
-    await setDoc(doc(window.db, 'users', cred.user.uid), {
+    const cred = await window.createUserWithEmailAndPassword(window.auth, email, password);
+    await window.setDoc(window.doc(window.db, 'users', cred.user.uid), {
       email: email,
       plan: 'free',
       createdAt: new Date()
@@ -1187,27 +1139,132 @@ $('#authSignupBtn').addEventListener('click', async () => {
 
 $('#btnLogout').addEventListener('click', async () => {
   try {
-    await signOut(window.auth);
+    await window.signOut(window.auth);
     toast('✓ تم تسجيل الخروج');
   } catch(e) {
     toast('خطأ في الخروج: ' + e.message);
   }
 });
 
-onAuthStateChanged(window.auth, (user) => {
+window.onAuthStateChanged(window.auth, (user) => {
   currentUser = user;
   if (user) {
     document.querySelector('main.layout').style.display = '';
     $('#authModal').classList.add('hidden');
     $('#btnLogin').style.display = 'none';
     $('#btnLogout').style.display = '';
+    $('#btnUpdates').style.display = '';
+    checkForUpdates();
   } else {
     document.querySelector('main.layout').style.display = 'none';
     $('#authModal').classList.remove('hidden');
     $('#btnLogin').style.display = 'none';
     $('#btnLogout').style.display = 'none';
+    $('#btnUpdates').style.display = 'none';
     $('#authEmail').value = '';
     $('#authPassword').value = '';
     $('#authError').style.display = 'none';
   }
+});
+
+/* ========== حفظ سحابي مع حد 2 للمجاني ========== */
+async function saveProjectToCloud() {
+  if (!currentUser || !layout) return;
+  const db = window.db;
+  const projectsRef = window.collection(db, 'users', currentUser.uid, 'projects');
+  
+  const qSnap = await window.getDocs(window.query(projectsRef, window.orderBy('createdAt', 'desc')));
+  const currentCount = qSnap.size;
+  
+  const userDoc = await window.getDoc(window.doc(db, 'users', currentUser.uid));
+  const plan = userDoc.exists() ? (userDoc.data().plan || 'free') : 'free';
+  
+  if (plan === 'free' && currentCount >= 2) {
+    toast('⚠️ وصلت للحد الأقصى (2) للمشاريع السحابية. استخدم "حفظ محلياً" أو ترقَّ.');
+    return;
+  }
+  
+  const projectId = (settings?.planName || 'default').replace(/\s+/g, '_') + '_' + Date.now();
+  try {
+    await window.setDoc(window.doc(db, 'users', currentUser.uid, 'projects', projectId), {
+      name: settings?.planName || 'مشروع بدون اسم',
+      pieces, sheetTypes, bandTypes, activeSheetId, layout, settings,
+      createdAt: new Date()
+    });
+    toast('✓ تم حفظ المشروع في السحابة');
+  } catch (e) {
+    toast('فشل الحفظ السحابي');
+  }
+}
+
+/* ========== حفظ محلي (ملف JSON) ========== */
+function saveProjectLocally() {
+  if (!layout) { toast('قم بالتحسين أولاً'); return; }
+  const data = {
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    planName: settings?.planName || '',
+    pieces, sheetTypes, bandTypes, activeSheetId, layout, settings
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = (settings?.planName || 'مشروع') + '.iqpanel.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('✓ تم تنزيل المشروع محلياً');
+}
+
+/* ========== نظام التحديثات (ما الجديد) ========== */
+let lastSeenVersion = localStorage.getItem('iqpanel_last_version') || '0';
+
+async function loadUpdates() {
+  const db = window.db;
+  const updatesRef = window.collection(db, 'updates');
+  const qSnap = await window.getDocs(window.query(updatesRef, window.orderBy('date', 'desc'), window.limit(5)));
+  const updates = [];
+  qSnap.forEach(doc => updates.push(doc.data()));
+  return updates;
+}
+
+function showUpdatesModal(updates) {
+  const content = $('#updatesContent');
+  if (!updates.length) {
+    content.innerHTML = '<p style="color:#64748b">لا توجد تحديثات بعد.</p>';
+  } else {
+    content.innerHTML = updates.map((u, i) => {
+      const d = u.date ? new Date(u.date.seconds * 1000).toLocaleDateString('ar-EG') : '';
+      return `
+        <div class="update-item" style="border-bottom:1px solid #e2e8f0; padding:10px 0;">
+          <div style="display:flex; justify-content:space-between; align-items:center">
+            <strong style="color:#0f766e">${u.title || 'تحديث'}</strong>
+            <span style="font-size:11px; color:#94a3b8">${d}</span>
+          </div>
+          <div style="white-space:pre-line; font-size:13px; color:#334155; margin-top:6px">${u.body || ''}</div>
+        </div>`;
+    }).join('');
+  }
+  $('#updatesModal').classList.remove('hidden');
+}
+
+async function checkForUpdates() {
+  const updates = await loadUpdates();
+  if (updates.length > 0) {
+    const latestVersion = updates[0].version || '';
+    if (latestVersion && latestVersion !== lastSeenVersion) {
+      showUpdatesModal(updates);
+      lastSeenVersion = latestVersion;
+      localStorage.setItem('iqpanel_last_version', latestVersion);
+    }
+  }
+}
+
+$('#btnUpdates').addEventListener('click', async () => {
+  const updates = await loadUpdates();
+  showUpdatesModal(updates);
+});
+
+$('#updatesClose').addEventListener('click', () => {
+  $('#updatesModal').classList.add('hidden');
 });
