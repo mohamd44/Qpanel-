@@ -1209,29 +1209,21 @@ window.onAuthStateChanged(window.auth, (user) => {
   authReady = true;
 
   if (user) {
-    document.querySelector('main.layout').style.display = '';
+    // user مسجل الدخول - تأكد أن التطبيق يظهر والنموذج مخفي
+    document.querySelector('main.layout').style.display = '';   // يظهر التطبيق (لأنه غير مخفي أصلاً لكن للتأكيد)
     hideAuthModal();
     if ($('#btnLogin')) $('#btnLogin').style.display = 'none';
     if ($('#btnLogout')) $('#btnLogout').style.display = '';
     if ($('#btnUpdates')) $('#btnUpdates').style.display = '';
     checkForUpdates();
   } else {
-    document.querySelector('main.layout').style.display = 'none';
+    // لا يوجد مستخدم - أظهر نافذة الدخول
     showAuthModal();
     if ($('#btnLogin')) $('#btnLogin').style.display = 'none';
     if ($('#btnLogout')) $('#btnLogout').style.display = 'none';
     if ($('#btnUpdates')) $('#btnUpdates').style.display = 'none';
   }
 });
-
-// خطة طوارئ: إن لم يصل رد Firebase خلال 3 ثوانٍ، نعرض واجهة الدخول
-setTimeout(() => {
-  if (!authReady) {
-    showAuthModal();
-    document.querySelector('main.layout').style.display = 'none';
-  }
-}, 3000);
-
 /* ========== ربط الأحداث ========== */
 $('#btnLogin')?.addEventListener('click', showAuthModal);
 $('#btnLogout')?.addEventListener('click', async () => {
