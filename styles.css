@@ -313,3 +313,36 @@ input:focus,select:focus{outline:2px solid var(--brand);outline-offset:-1px}
 @keyframes spin{to{transform:rotate(360deg)}}
 .progress-pct{font-size:30px;font-weight:800;color:var(--brand-dark);line-height:1}
 .progress-label{font-size:14px;color:#64748b;font-weight:700;text-align:center}
+/* تنسيق تبويبات تسجيل الدخول */
+.auth-tab {
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  padding: 10px 16px;
+  font-weight: 700;
+  font-size: 14px;
+  color: #64748b;
+  cursor: pointer;
+  transition: 0.2s;
+  font-family: inherit;
+  flex: 1;
+  text-align: center;
+}
+
+.auth-tab.active {
+  color: #b5803c;
+  border-bottom-color: #b5803c;
+}
+
+.auth-tab:hover {
+  color: #1f2933;
+}
+
+/* جعل رأس النافذة يحتوي على التبويبين بشكل متساوٍ */
+#authModal .pdf-modal-head {
+  display: flex;
+  justify-content: center;
+  gap: 0;
+  padding: 0 0 8px 0;
+  border-bottom: 1px solid var(--line);
+}
