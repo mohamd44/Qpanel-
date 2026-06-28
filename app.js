@@ -1004,7 +1004,7 @@ function resetProject(){
   toast('✓ تم بدء مشروع جديد');
 }
 
-/* ========== دوال الحفظ السحابي والمحلي (مُعرَّفة قبل ربط الأحداث) ========== */
+/* ========== دوال الحفظ السحابي والمحلي ========== */
 async function saveProjectToCloud() {
   if (!currentUser || !layout) return;
   const db = window.db;
@@ -1096,7 +1096,7 @@ async function checkForUpdates() {
   }
 }
 
-/* ========== Firebase Auth (إجباري) ========== */
+/* ========== Firebase Auth (إجباري + حماية من التعليق) ========== */
 let currentUser = null;
 let authReady = false;
 
@@ -1205,12 +1205,10 @@ document.getElementById('authModal')?.addEventListener('click', function(e) {
 });
 
 window.onAuthStateChanged(window.auth, (user) => {
-  console.log('🔥 onAuthStateChanged fired, user:', user ? user.email : 'null');
   currentUser = user;
   authReady = true;
 
   if (user) {
-    console.log('✅ User is signed in, showing app');
     document.querySelector('main.layout').style.display = '';
     hideAuthModal();
     if ($('#btnLogin')) $('#btnLogin').style.display = 'none';
@@ -1218,7 +1216,6 @@ window.onAuthStateChanged(window.auth, (user) => {
     if ($('#btnUpdates')) $('#btnUpdates').style.display = '';
     checkForUpdates();
   } else {
-    console.log('❌ No user, showing auth form');
     document.querySelector('main.layout').style.display = 'none';
     showAuthModal();
     if ($('#btnLogin')) $('#btnLogin').style.display = 'none';
@@ -1226,9 +1223,17 @@ window.onAuthStateChanged(window.auth, (user) => {
     if ($('#btnUpdates')) $('#btnUpdates').style.display = 'none';
   }
 });
-/* ========== ربط الأحداث (يأتي بعد تعريف جميع الدوال) ========== */
-$('#btnLogin')?.addEventListener('click', showAuthModal);
 
+// خطة طوارئ: إن لم يصل رد Firebase خلال 3 ثوانٍ، نعرض واجهة الدخول
+setTimeout(() => {
+  if (!authReady) {
+    showAuthModal();
+    document.querySelector('main.layout').style.display = 'none';
+  }
+}, 3000);
+
+/* ========== ربط الأحداث ========== */
+$('#btnLogin')?.addEventListener('click', showAuthModal);
 $('#btnLogout')?.addEventListener('click', async () => {
   try {
     await window.signOut(window.auth);
@@ -1237,17 +1242,14 @@ $('#btnLogout')?.addEventListener('click', async () => {
     toast('خطأ في الخروج: ' + e.message);
   }
 });
-
 $('#btnUpdates').addEventListener('click', async () => {
   const updates = await loadUpdates();
   showUpdatesModal(updates);
 });
-
 $('#updatesClose').addEventListener('click', () => {
   $('#updatesModal').classList.add('hidden');
 });
 
-// باقي أزرار التطبيق
 $('#addBand').addEventListener('click',()=>{ bandTypes.push({id:nid(),name:'نوع جديد',price:0.5}); renderBandTable(); renderPieceTable(); });
 $('#addPiece').addEventListener('mousedown',e=>e.preventDefault());
 $('#addPiece').addEventListener('click',()=>{
@@ -1283,7 +1285,7 @@ applyExtraToggleUI();
 $('#btnNew').addEventListener('click',resetProject);
 $('#btnOptimize').addEventListener('click',optimize);
 $('#btnPdf').addEventListener('click',openPdfOptions);
-$('#btnSaveLocal').addEventListener('click', saveProjectLocally); // تم حله الآن
+$('#btnSaveLocal').addEventListener('click', saveProjectLocally);
 
 const _pc=$('#pdfOptCancel'); if(_pc) _pc.addEventListener('click',()=>$('#pdfOptModal').classList.add('hidden'));
 const _pg=$('#pdfOptGo'); if(_pg) _pg.addEventListener('click',()=>{
