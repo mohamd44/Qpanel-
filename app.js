@@ -1100,37 +1100,6 @@ async function checkForUpdates() {
 let currentUser = null;
 let authReady = false;
 
-const AUTH_FORM_HTML = `
-  <div class="pdf-modal-head" style="justify-content:center; gap:0; padding:0 0 8px 0; border-bottom:none">
-    <button class="auth-tab active" data-tab="login">تسجيل الدخول</button>
-    <button class="auth-tab" data-tab="signup">إنشاء حساب جديد</button>
-  </div>
-  <div style="padding:14px 16px; display:flex; flex-direction:column; gap:10px">
-    <input type="email" id="authEmail" placeholder="البريد الإلكتروني" style="direction:ltr">
-    <input type="password" id="authPassword" placeholder="كلمة المرور" style="direction:ltr">
-    <button id="authActionBtn" class="btn btn-primary" style="width:100%">دخول</button>
-    <p id="authError" style="color:red; font-size:12px; display:none; margin:0; text-align:center"></p>
-  </div>
-`;
-
-function buildAuthForm() {
-  const modalBox = document.querySelector('#authModal .pdf-modal-box');
-  if (!modalBox) return;
-  modalBox.innerHTML = AUTH_FORM_HTML;
-  initAuthTabs();
-}
-
-let activeTab = 'login';
-function initAuthTabs() {
-  document.querySelectorAll('.auth-tab').forEach(btn => {
-    btn.addEventListener('click', () => setActiveTab(btn.dataset.tab));
-  });
-  const actionBtn = document.getElementById('authActionBtn');
-  if (actionBtn) {
-    actionBtn.addEventListener('click', handleAuthAction);
-  }
-}
-
 function setActiveTab(tab) {
   activeTab = tab;
   document.querySelectorAll('.auth-tab').forEach(btn => btn.classList.remove('active'));
