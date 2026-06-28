@@ -68,7 +68,7 @@ function _readInputs(){ return {
   kerf:($('#kerf')&&$('#kerf').value)||'',
   cutFee:($('#cutFee')&&$('#cutFee').value)||'',
   cutDir:($('#cutDir')&&$('#cutDir').value)||'length',
-  allowRotate: false // ملغى نهائياً
+  allowRotate: false
 }; }
 function saveState(){ try{ localStorage.setItem(LS_KEY, JSON.stringify({pieces,sheetTypes,bandTypes,activeSheetId,showExtra,layout,settings,uid,inputs:_readInputs()})); }catch(_){} }
 let _saveT=null; function scheduleSave(){ clearTimeout(_saveT); _saveT=setTimeout(saveState,400); }
@@ -229,7 +229,7 @@ function renderPieceTable(){
 function optimize(){
   const at=sheetTypes.find(s=>s.id===activeSheetId)||sheetTypes[0];
   const L=+at.l, W=+at.w, qty=+at.qty||0;
-  const kerf=+$('#kerf').value||0, cutDir=$('#cutDir').value, allowRotate=false; // التدوير ملغى نهائياً
+  const kerf=+$('#kerf').value||0, cutDir=$('#cutDir').value, allowRotate=false;
   const cutFee=+$('#cutFee').value||0, planName=$('#planName').value.trim();
   if(!(L>0&&W>0)){ toast('أدخل أبعاد لوح صحيحة في جدول الأنواع'); return; }
   settings={L,W,qty,kerf,cutDir,allowRotate,colorize:false,sheetPrice:+at.price||0,sheetName:(at.name||'لوح'),cutFee,planName};
@@ -690,7 +690,7 @@ function _band(ctx,x,y,w,h){
   ctx.restore();
 }
 function drawSheetToCanvasEl(sheet, idx, s){
-  const MR=44, MB=40;   // هوامش أكبر لمنع التداخل
+  const MR=44, MB=40;
   const cv=document.createElement('canvas');
   const Wpx=Math.max(1,Math.round(settings.L*s)), Hpx=Math.max(1,Math.round(settings.W*s));
   const dpr=2;
@@ -700,7 +700,6 @@ function drawSheetToCanvasEl(sheet, idx, s){
   ctx.scale(dpr,dpr);
   ctx.direction='ltr';
   ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,Wpx+MR,Hpx+MB);
-  // إطار خارجي محذوف
   ctx.textAlign='center'; ctx.textBaseline='middle';
   recomputeWaste(sheet).forEach(w=>{
     const x=w.x*s,y=w.y*s,ww=w.w*s,hh=w.h*s;
@@ -740,14 +739,14 @@ function drawSheetToCanvasEl(sheet, idx, s){
   ctx.save();
   ctx.strokeStyle='#a8706f'; ctx.fillStyle='#a8706f'; ctx.lineWidth=1.2;
   ctx.textAlign='center'; ctx.textBaseline='middle';
-  const by=Hpx+22;   // مسافة أكبر للمسطرة السفلية
+  const by=Hpx+22;
   ctx.beginPath(); ctx.moveTo(0,by); ctx.lineTo(Wpx,by); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(0,by-4); ctx.lineTo(0,by+4); ctx.moveTo(Wpx,by-4); ctx.lineTo(Wpx,by+4); ctx.stroke();
   ctx.font='600 16px Cairo, Arial, sans-serif';
   const lt=fmtNum(settings.L)+''; const ltw=ctx.measureText(lt).width;
   ctx.fillStyle='#ffffff'; ctx.fillRect(Wpx/2-ltw/2-5, by-10, ltw+10, 20);
   ctx.fillStyle='#a8706f'; ctx.fillText(lt, Wpx/2, by);
-  const rx=Wpx+22;   // مسافة أكبر للمسطرة الجانبية
+  const rx=Wpx+22;
   ctx.beginPath(); ctx.moveTo(rx,0); ctx.lineTo(rx,Hpx); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(rx-4,0); ctx.lineTo(rx+4,0); ctx.moveTo(rx-4,Hpx); ctx.lineTo(rx+4,Hpx); ctx.stroke();
   ctx.save(); ctx.translate(rx, Hpx/2); ctx.rotate(-Math.PI/2);
@@ -758,7 +757,7 @@ function drawSheetToCanvasEl(sheet, idx, s){
   return cv;
 }
 
-/* ---------------- تصدير PDF (تصميم أنيق + مؤشر تقدم) ---------------- */
+/* ---------------- تصدير PDF ---------------- */
 async function doExportPDF(opts){
   opts=opts||{summary:true,sheetData:true,cutOrder:true,banding:true,costs:true};
   if(!layout||!layout.length){ toast('قم بالتحسين أولاً'); return; }
@@ -864,7 +863,6 @@ async function doExportPDF(opts){
     page.appendChild(info);
 
     const wrap=document.createElement('div'); wrap.className='rpt-layout';
-
     const imgCol=document.createElement('div'); imgCol.className='rpt-img-col';
     const {block}=buildSheetCanvas(sh,i,colorMap,false,_cnt);
     block.style.cssText='box-shadow:none;border:none;padding:0;background:transparent';
@@ -1006,82 +1004,102 @@ function resetProject(){
   toast('✓ تم بدء مشروع جديد');
 }
 
-/* ---------------- ربط الأحداث ---------------- */
-$('#addBand').addEventListener('click',()=>{ bandTypes.push({id:nid(),name:'نوع جديد',price:0.5}); renderBandTable(); renderPieceTable(); });
-$('#addPiece').addEventListener('mousedown',e=>e.preventDefault());
-$('#addPiece').addEventListener('click',()=>{
-  const id=nid();
-  pieces.push({id,name:'',l:null,w:null,qty:null,bandId:bandTypes[0]?.id,edges:{t:false,b:false,l:false,r:false}});
-  renderPieceTable();
-  const inp=document.querySelector(`#pieceTable tbody input[data-id="${id}"][data-f="l"]`);
-  if(inp) inp.focus();
-});
-const btnAdd10=$('#addPiece10');
-if(btnAdd10){
-  btnAdd10.addEventListener('mousedown',e=>e.preventDefault());
-  btnAdd10.addEventListener('click',()=>{
-    let firstId=null;
-    for(let i=0;i<10;i++){ const id=nid(); if(!firstId) firstId=id;
-      pieces.push({id,name:'',l:null,w:null,qty:null,bandId:bandTypes[0]?.id,edges:{t:false,b:false,l:false,r:false}}); }
-    renderPieceTable();
-    const inp=document.querySelector(`#pieceTable tbody input[data-id="${firstId}"][data-f="l"]`);
-    if(inp) inp.focus();
-    toast('✓ تمت إضافة ١٠ صفوف');
-  });
+/* ========== دوال الحفظ السحابي والمحلي (مُعرَّفة قبل ربط الأحداث) ========== */
+async function saveProjectToCloud() {
+  if (!currentUser || !layout) return;
+  const db = window.db;
+  const projectsRef = window.collection(db, 'users', currentUser.uid, 'projects');
+  
+  const qSnap = await window.getDocs(window.query(projectsRef, window.orderBy('createdAt', 'desc')));
+  const currentCount = qSnap.size;
+  
+  const userDoc = await window.getDoc(window.doc(db, 'users', currentUser.uid));
+  const plan = userDoc.exists() ? (userDoc.data().plan || 'free') : 'free';
+  
+  if (plan === 'free' && currentCount >= 2) {
+    toast('⚠️ وصلت للحد الأقصى (2) للمشاريع السحابية. استخدم "حفظ محلياً" أو ترقَّ.');
+    return;
+  }
+  
+  const projectId = (settings?.planName || 'default').replace(/\s+/g, '_') + '_' + Date.now();
+  try {
+    await window.setDoc(window.doc(db, 'users', currentUser.uid, 'projects', projectId), {
+      name: settings?.planName || 'مشروع بدون اسم',
+      pieces, sheetTypes, bandTypes, activeSheetId, layout, settings,
+      createdAt: new Date()
+    });
+    toast('✓ تم حفظ المشروع في السحابة');
+  } catch (e) {
+    toast('فشل الحفظ السحابي');
+  }
 }
-const btnExtra=$('#toggleExtra');
-if(btnExtra){
-  btnExtra.addEventListener('click',()=>{
-    showExtra=!showExtra;
-    applyExtraToggleUI();
-    renderPieceTable();
-  });
+
+function saveProjectLocally() {
+  if (!layout) { toast('قم بالتحسين أولاً'); return; }
+  const data = {
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    planName: settings?.planName || '',
+    pieces, sheetTypes, bandTypes, activeSheetId, layout, settings
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = (settings?.planName || 'مشروع') + '.iqpanel.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('✓ تم تنزيل المشروع محلياً');
 }
-applyExtraToggleUI();
 
-$('#btnNew').addEventListener('click',resetProject);
-$('#btnOptimize').addEventListener('click',optimize);
-$('#btnPdf').addEventListener('click',openPdfOptions);
-$('#btnSaveLocal').addEventListener('click',saveProjectLocally);
+/* ========== نظام التحديثات (ما الجديد) ========== */
+let lastSeenVersion = localStorage.getItem('iqpanel_last_version') || '0';
 
-const _pc=$('#pdfOptCancel'); if(_pc) _pc.addEventListener('click',()=>$('#pdfOptModal').classList.add('hidden'));
-const _pg=$('#pdfOptGo'); if(_pg) _pg.addEventListener('click',()=>{
-  const opts={ name:($('#pdfName')&&$('#pdfName').value.trim())||'',
-    summary:$('#optSummary').checked, sheetData:$('#optSheetData').checked,
-    cutOrder:$('#optCutOrder').checked, banding:$('#optBanding').checked, costs:$('#optCosts').checked };
-  if(settings && opts.name) settings.planName=opts.name;
-  if(opts.name){ const pn=$('#planName'); if(pn) pn.value=opts.name; }
-  $('#pdfOptModal').classList.add('hidden');
-  doExportPDF(opts);
-});
-$('#pdfClose').addEventListener('click',()=>{ $('#pdfModal').classList.add('hidden'); $('#pdfFrame').src='about:blank'; });
-$('#pdfPrint').addEventListener('click',()=>{ const f=$('#pdfFrame'); try{ f.contentWindow.focus(); f.contentWindow.print(); }catch(e){ toast('استخدم زر التنزيل بدل الطباعة'); } });
-$('#addSheet').addEventListener('click',()=>{ sheetTypes.push({id:nid(),name:'لوح',l:null,w:null,qty:null,price:null}); renderSheetTable(); });
-$('#cutDir').addEventListener('change',()=>{ if(layout) optimize(); });
-
-const emptyPiece=()=>({id:nid(),name:'',l:null,w:null,qty:null,bandId:bandTypes[0]?.id,edges:{t:false,b:false,l:false,r:false}});
-const _saved=loadState();
-if(!pieces.length){ for(let i=0;i<10;i++) pieces.push(emptyPiece()); }
-if(_saved){
-  const setV=(id,v)=>{ const el=$('#'+id); if(el!=null&&v!=null&&v!=='') el.value=v; };
-  setV('planName',_saved.planName); setV('kerf',_saved.kerf); setV('cutFee',_saved.cutFee);
-  if(_saved.cutDir){ const cd=$('#cutDir'); if(cd) cd.value=_saved.cutDir; }
+async function loadUpdates() {
+  const db = window.db;
+  const updatesRef = window.collection(db, 'updates');
+  const qSnap = await window.getDocs(window.query(updatesRef, window.orderBy('date', 'desc'), window.limit(5)));
+  const updates = [];
+  qSnap.forEach(doc => updates.push(doc.data()));
+  return updates;
 }
-applyExtraToggleUI();
 
-renderSheetTable();
-renderBandTable();
-renderPieceTable();
-if(layout&&layout.length) renderResults();
+function showUpdatesModal(updates) {
+  const content = $('#updatesContent');
+  if (!updates.length) {
+    content.innerHTML = '<p style="color:#64748b">لا توجد تحديثات بعد.</p>';
+  } else {
+    content.innerHTML = updates.map((u, i) => {
+      const d = u.date ? new Date(u.date.seconds * 1000).toLocaleDateString('ar-EG') : '';
+      return `
+        <div class="update-item" style="border-bottom:1px solid #e2e8f0; padding:10px 0;">
+          <div style="display:flex; justify-content:space-between; align-items:center">
+            <strong style="color:#0f766e">${u.title || 'تحديث'}</strong>
+            <span style="font-size:11px; color:#94a3b8">${d}</span>
+          </div>
+          <div style="white-space:pre-line; font-size:13px; color:#334155; margin-top:6px">${u.body || ''}</div>
+        </div>`;
+    }).join('');
+  }
+  $('#updatesModal').classList.remove('hidden');
+}
 
-document.addEventListener('input', scheduleSave);
-document.addEventListener('change', scheduleSave);
+async function checkForUpdates() {
+  const updates = await loadUpdates();
+  if (updates.length > 0) {
+    const latestVersion = updates[0].version || '';
+    if (latestVersion && latestVersion !== lastSeenVersion) {
+      showUpdatesModal(updates);
+      lastSeenVersion = latestVersion;
+      localStorage.setItem('iqpanel_last_version', latestVersion);
+    }
+  }
+}
 
 /* ========== Firebase Auth (إجباري) ========== */
 let currentUser = null;
 let authReady = false;
 
-// نموذج تسجيل الدخول/إنشاء الحساب (سيُحقن عند الحاجة)
 const AUTH_FORM_HTML = `
   <div class="pdf-modal-head" style="justify-content:center; gap:0; padding:0 0 8px 0; border-bottom:none">
     <button class="auth-tab active" data-tab="login">تسجيل الدخول</button>
@@ -1095,12 +1113,10 @@ const AUTH_FORM_HTML = `
   </div>
 `;
 
-// دالة مساعدة لبناء واجهة الدخول داخل النافذة
 function buildAuthForm() {
   const modalBox = document.querySelector('#authModal .pdf-modal-box');
   if (!modalBox) return;
   modalBox.innerHTML = AUTH_FORM_HTML;
-  // تفعيل التبويبات
   initAuthTabs();
 }
 
@@ -1109,7 +1125,6 @@ function initAuthTabs() {
   document.querySelectorAll('.auth-tab').forEach(btn => {
     btn.addEventListener('click', () => setActiveTab(btn.dataset.tab));
   });
-  // زر موحد
   const actionBtn = document.getElementById('authActionBtn');
   if (actionBtn) {
     actionBtn.addEventListener('click', handleAuthAction);
@@ -1147,7 +1162,6 @@ async function handleAuthAction() {
     try {
       await window.signInWithEmailAndPassword(window.auth, email, password);
       toast('✓ تم تسجيل الدخول');
-      // عند النجاح، سيخفيها onAuthStateChanged
     } catch (e) {
       if (errEl) { errEl.textContent = 'خطأ: ' + e.message; errEl.style.display = 'block'; }
     }
@@ -1174,12 +1188,10 @@ async function handleAuthAction() {
 function showAuthModal() {
   const modal = document.getElementById('authModal');
   if (!modal) return;
-  // إذا لم يكن النموذج مبنيًا بعد، نبنيه
   if (!document.getElementById('authActionBtn')) {
     buildAuthForm();
   }
   modal.classList.remove('hidden');
-  // إعادة تعيين التبويب الافتراضي
   setActiveTab('login');
 }
 
@@ -1188,6 +1200,31 @@ function hideAuthModal() {
   if (modal) modal.classList.add('hidden');
 }
 
+document.getElementById('authModal')?.addEventListener('click', function(e) {
+  if (e.target === this) e.stopPropagation();
+});
+
+window.onAuthStateChanged(window.auth, (user) => {
+  currentUser = user;
+  authReady = true;
+
+  if (user) {
+    document.querySelector('main.layout').style.display = '';
+    hideAuthModal();
+    if ($('#btnLogin')) $('#btnLogin').style.display = 'none';
+    if ($('#btnLogout')) $('#btnLogout').style.display = '';
+    if ($('#btnUpdates')) $('#btnUpdates').style.display = '';
+    checkForUpdates();
+  } else {
+    document.querySelector('main.layout').style.display = 'none';
+    showAuthModal();
+    if ($('#btnLogin')) $('#btnLogin').style.display = 'none';
+    if ($('#btnLogout')) $('#btnLogout').style.display = 'none';
+    if ($('#btnUpdates')) $('#btnUpdates').style.display = 'none';
+  }
+});
+
+/* ========== ربط الأحداث (يأتي بعد تعريف جميع الدوال) ========== */
 $('#btnLogin')?.addEventListener('click', showAuthModal);
 
 $('#btnLogout')?.addEventListener('click', async () => {
@@ -1199,30 +1236,82 @@ $('#btnLogout')?.addEventListener('click', async () => {
   }
 });
 
-// منع إغلاق النافذة بالنقر على الخلفية
-document.getElementById('authModal')?.addEventListener('click', function(e) {
-  if (e.target === this) e.stopPropagation();
+$('#btnUpdates').addEventListener('click', async () => {
+  const updates = await loadUpdates();
+  showUpdatesModal(updates);
 });
 
-// مراقب حالة المصادقة
-window.onAuthStateChanged(window.auth, (user) => {
-  currentUser = user;
-  authReady = true;
-
-  if (user) {
-    // مستخدم مسجل الدخول
-    document.querySelector('main.layout').style.display = '';
-    hideAuthModal();
-    if ($('#btnLogin')) $('#btnLogin').style.display = 'none';
-    if ($('#btnLogout')) $('#btnLogout').style.display = '';
-    if ($('#btnUpdates')) $('#btnUpdates').style.display = '';
-    checkForUpdates();
-  } else {
-    // لا يوجد مستخدم – نعرض واجهة الدخول (بدون نموذج إن لم يُبنى بعد)
-    document.querySelector('main.layout').style.display = 'none';
-    showAuthModal();
-    if ($('#btnLogin')) $('#btnLogin').style.display = 'none';
-    if ($('#btnLogout')) $('#btnLogout').style.display = 'none';
-    if ($('#btnUpdates')) $('#btnUpdates').style.display = 'none';
-  }
+$('#updatesClose').addEventListener('click', () => {
+  $('#updatesModal').classList.add('hidden');
 });
+
+// باقي أزرار التطبيق
+$('#addBand').addEventListener('click',()=>{ bandTypes.push({id:nid(),name:'نوع جديد',price:0.5}); renderBandTable(); renderPieceTable(); });
+$('#addPiece').addEventListener('mousedown',e=>e.preventDefault());
+$('#addPiece').addEventListener('click',()=>{
+  const id=nid();
+  pieces.push({id,name:'',l:null,w:null,qty:null,bandId:bandTypes[0]?.id,edges:{t:false,b:false,l:false,r:false}});
+  renderPieceTable();
+  const inp=document.querySelector(`#pieceTable tbody input[data-id="${id}"][data-f="l"]`);
+  if(inp) inp.focus();
+});
+const btnAdd10=$('#addPiece10');
+if(btnAdd10){
+  btnAdd10.addEventListener('mousedown',e=>e.preventDefault());
+  btnAdd10.addEventListener('click',()=>{
+    let firstId=null;
+    for(let i=0;i<10;i++){ const id=nid(); if(!firstId) firstId=id;
+      pieces.push({id,name:'',l:null,w:null,qty:null,bandId:bandTypes[0]?.id,edges:{t:false,b:false,l:false,r:false}}); }
+    renderPieceTable();
+    const inp=document.querySelector(`#pieceTable tbody input[data-id="${firstId}"][data-f="l"]`);
+    if(inp) inp.focus();
+    toast('✓ تمت إضافة ١٠ صفوف');
+  });
+}
+const btnExtra=$('#toggleExtra');
+if(btnExtra){
+  btnExtra.addEventListener('click',()=>{
+    showExtra=!showExtra;
+    applyExtraToggleUI();
+    renderPieceTable();
+  });
+}
+applyExtraToggleUI();
+
+$('#btnNew').addEventListener('click',resetProject);
+$('#btnOptimize').addEventListener('click',optimize);
+$('#btnPdf').addEventListener('click',openPdfOptions);
+$('#btnSaveLocal').addEventListener('click', saveProjectLocally); // تم حله الآن
+
+const _pc=$('#pdfOptCancel'); if(_pc) _pc.addEventListener('click',()=>$('#pdfOptModal').classList.add('hidden'));
+const _pg=$('#pdfOptGo'); if(_pg) _pg.addEventListener('click',()=>{
+  const opts={ name:($('#pdfName')&&$('#pdfName').value.trim())||'',
+    summary:$('#optSummary').checked, sheetData:$('#optSheetData').checked,
+    cutOrder:$('#optCutOrder').checked, banding:$('#optBanding').checked, costs:$('#optCosts').checked };
+  if(settings && opts.name) settings.planName=opts.name;
+  if(opts.name){ const pn=$('#planName'); if(pn) pn.value=opts.name; }
+  $('#pdfOptModal').classList.add('hidden');
+  doExportPDF(opts);
+});
+$('#pdfClose').addEventListener('click',()=>{ $('#pdfModal').classList.add('hidden'); $('#pdfFrame').src='about:blank'; });
+$('#pdfPrint').addEventListener('click',()=>{ const f=$('#pdfFrame'); try{ f.contentWindow.focus(); f.contentWindow.print(); }catch(e){ toast('استخدم زر التنزيل بدل الطباعة'); } });
+$('#addSheet').addEventListener('click',()=>{ sheetTypes.push({id:nid(),name:'لوح',l:null,w:null,qty:null,price:null}); renderSheetTable(); });
+$('#cutDir').addEventListener('change',()=>{ if(layout) optimize(); });
+
+const emptyPiece=()=>({id:nid(),name:'',l:null,w:null,qty:null,bandId:bandTypes[0]?.id,edges:{t:false,b:false,l:false,r:false}});
+const _saved=loadState();
+if(!pieces.length){ for(let i=0;i<10;i++) pieces.push(emptyPiece()); }
+if(_saved){
+  const setV=(id,v)=>{ const el=$('#'+id); if(el!=null&&v!=null&&v!=='') el.value=v; };
+  setV('planName',_saved.planName); setV('kerf',_saved.kerf); setV('cutFee',_saved.cutFee);
+  if(_saved.cutDir){ const cd=$('#cutDir'); if(cd) cd.value=_saved.cutDir; }
+}
+applyExtraToggleUI();
+
+renderSheetTable();
+renderBandTable();
+renderPieceTable();
+if(layout&&layout.length) renderResults();
+
+document.addEventListener('input', scheduleSave);
+document.addEventListener('change', scheduleSave);
