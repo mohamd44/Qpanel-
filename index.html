@@ -15,6 +15,27 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
+  <style>
+    .auth-tab {
+      background: transparent;
+      border: none;
+      border-bottom: 3px solid transparent;
+      padding: 10px 16px;
+      font-weight: 700;
+      font-size: 14px;
+      color: #64748b;
+      cursor: pointer;
+      transition: 0.2s;
+      font-family: inherit;
+    }
+    .auth-tab.active {
+      color: #b5803c;
+      border-bottom-color: #b5803c;
+    }
+    .auth-tab:hover {
+      color: #1f2933;
+    }
+  </style>
 </head>
 <body>
   <header class="app-header">
@@ -33,7 +54,7 @@
     </div>
   </header>
 
-<main class="layout">
+  <main class="layout">
     <!-- لوحة الإدخال -->
     <aside class="sidebar">
       <!-- إعدادات اللوح -->
@@ -109,7 +130,7 @@
         <p>أدخل بيانات اللوح والقطع ثم اضغط <b>«توليد المخطط»</b> لرؤية المخططات.</p>
       </div>
       <div id="sheetsArea" class="sheets-area"></div>
-      <p id="dragHint" class="hint hidden">💡 <b>اضغط مع الاستمرار</b> على أي قطعة حتى ترتفع ثم اسحبها...</p>
+      <p id="dragHint" class="hint hidden">💡 <b>اضغط مع الاستمرار</b> على أي قطعة حتى ترتفع ثم اسحبها. عند الإفلات <b>تلتصق مغناطيسياً</b> بحافة أقرب قطعة تاركةً فاصل سُمك المنشار فقط — على خط قص مستقيم. يمكن نقلها بين الألواح وتتحدّث الإحصائيات تلقائياً.</p>
       <div id="resultsActions" class="results-actions">
         <span class="band-legend"><i class="band-swatch"></i> حرف التلبيس (التقشيط)</span>
         <div class="results-actions-btns">
@@ -121,7 +142,7 @@
     </section>
   </main>
 
-  <!-- حاوية تقرير الـ PDF (مخفية) -->
+  <!-- النوافذ المخفية -->
   <div id="pdfReport" class="pdf-report"></div>
   <div id="toast" class="toast hidden"></div>
 
@@ -135,21 +156,21 @@
 
   <button id="btnInstall" class="install-fab hidden">⬇️ تثبيت التطبيق على الهاتف</button>
 
-  <!-- نافذة تسجيل الدخول (إجبارية – بدون زر إغلاق) -->
+  <!-- نافذة تسجيل الدخول (النموذج ثابت) -->
   <div id="authModal" class="pdf-modal hidden">
-  <div class="pdf-modal-box" style="max-width:400px">
-    <div class="pdf-modal-head" style="justify-content:center; gap:0; padding:0 0 8px 0; border-bottom:none">
-      <button class="auth-tab active" data-tab="login">تسجيل الدخول</button>
-      <button class="auth-tab" data-tab="signup">إنشاء حساب جديد</button>
-    </div>
-    <div style="padding:14px 16px; display:flex; flex-direction:column; gap:10px">
-      <input type="email" id="authEmail" placeholder="البريد الإلكتروني" style="direction:ltr">
-      <input type="password" id="authPassword" placeholder="كلمة المرور" style="direction:ltr">
-      <button id="authActionBtn" class="btn btn-primary" style="width:100%">دخول</button>
-      <p id="authError" style="color:red; font-size:12px; display:none; margin:0; text-align:center"></p>
+    <div class="pdf-modal-box" style="max-width:400px">
+      <div class="pdf-modal-head" style="justify-content:center; gap:0; padding:0 0 8px 0; border-bottom:none">
+        <button class="auth-tab active" data-tab="login">تسجيل الدخول</button>
+        <button class="auth-tab" data-tab="signup">إنشاء حساب جديد</button>
+      </div>
+      <div style="padding:14px 16px; display:flex; flex-direction:column; gap:10px">
+        <input type="email" id="authEmail" placeholder="البريد الإلكتروني" style="direction:ltr">
+        <input type="password" id="authPassword" placeholder="كلمة المرور" style="direction:ltr">
+        <button id="authActionBtn" class="btn btn-primary" style="width:100%">دخول</button>
+        <p id="authError" style="color:red; font-size:12px; display:none; margin:0; text-align:center"></p>
+      </div>
     </div>
   </div>
-</div>
 
   <!-- نافذة التحديثات -->
   <div id="updatesModal" class="pdf-modal hidden">
@@ -158,9 +179,7 @@
         <span class="pdf-modal-title">🔔 آخر التحديثات</span>
         <button id="updatesClose" class="btn btn-danger" type="button">✕</button>
       </div>
-      <div style="padding:14px 16px; max-height:60vh; overflow-y:auto" id="updatesContent">
-        <!-- قائمة التحديثات تُملأ برمجياً -->
-      </div>
+      <div style="padding:14px 16px; max-height:60vh; overflow-y:auto" id="updatesContent"></div>
     </div>
   </div>
 
@@ -222,18 +241,13 @@
     };
 
     const app = initializeApp(firebaseConfig);
-    
-    // جعل الدوال متاحة لملف app.js
     window.auth = getAuth(app);
     window.db = getFirestore(app);
-    
-    // دوال المصادقة
+    // تعريض الدوال
     window.createUserWithEmailAndPassword = createUserWithEmailAndPassword;
     window.signInWithEmailAndPassword = signInWithEmailAndPassword;
     window.onAuthStateChanged = onAuthStateChanged;
     window.signOut = signOut;
-    
-    // دوال Firestore
     window.doc = doc;
     window.setDoc = setDoc;
     window.getDoc = getDoc;
