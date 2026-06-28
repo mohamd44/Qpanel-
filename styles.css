@@ -162,26 +162,22 @@ input:focus,select:focus{outline:2px solid var(--brand);outline-offset:-1px}
 .subh{font-size:12px;color:#8a5e26;font-weight:800;margin:12px 0 6px}
 
 /* شريط الإجراءات السفلي */
-.results-actions{
-  position:static;
-  display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
-  margin-top:16px; padding:10px 12px;
-  background:rgba(255,255,255,.94); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px);
-  border:1px solid var(--line); border-radius:14px;
-  box-shadow:0 -4px 14px rgba(0,0,0,.08);
+.results-actions {
+  position: sticky;
+  bottom: 0;
+  background: rgba(255,255,255,0.95);
+  backdrop-filter: blur(8px);
+  z-index: 10;
+  margin-top: 16px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -4px 14px rgba(0,0,0,0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
 }
-.results-actions-btns{ display:flex; gap:10px; flex-wrap:wrap; flex:1; justify-content:flex-end; }
-.results-actions .btn-lg{ padding:13px 20px; font-size:15px; font-weight:800; }
-.results-actions-btns .btn{ flex:1 1 auto; min-width:150px; justify-content:center; }
-.band-legend{ display:inline-flex; align-items:center; gap:7px; color:var(--muted); font-size:12px; font-weight:700; white-space:nowrap; }
-.band-legend .band-swatch{ width:22px; height:5px; border-radius:3px; background:var(--accent); display:inline-block; }
-@media (max-width:560px){
-  .results-actions{ flex-direction:column; align-items:stretch; }
-  .results-actions-btns{ justify-content:stretch; }
-  .results-actions-btns .btn{ flex:1 1 100%; }
-  .band-legend{ justify-content:center; }
-}
-
 /* شارة المقاسات المكررة */
 .piece .rep-badge{position:absolute;bottom:2px;inset-inline-end:3px;font-size:9px;font-weight:800;color:#8a5e26;
   background:rgba(255,255,255,.9);padding:0 3px;border-radius:3px;pointer-events:none;z-index:6;line-height:1.35}
