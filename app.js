@@ -31,6 +31,7 @@ const nid = () => 'x' + (++uid);
 function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.remove('hidden');
   clearTimeout(t._tm); t._tm=setTimeout(()=>t.classList.add('hidden'),2600); }
 function bandById(id){ return bandTypes.find(b=>b.id===id) || {name:'-',price:0}; }
+function colorForSize(l,w,map){ const k=`${l}x${w}`; if(!(k in map)) map[k]=palette[Object.keys(map).length%palette.length]; return map[k]; }
 
 /* ---------------- مؤشر تقدم إنشاء الـ PDF ---------------- */
 function showProgress(pct, label){
@@ -67,7 +68,7 @@ function _readInputs(){ return {
   kerf:($('#kerf')&&$('#kerf').value)||'',
   cutFee:($('#cutFee')&&$('#cutFee').value)||'',
   cutDir:($('#cutDir')&&$('#cutDir').value)||'length',
-  allowRotate: false
+  allowRotate: false // ملغى نهائياً
 }; }
 function saveState(){ try{ localStorage.setItem(LS_KEY, JSON.stringify({pieces,sheetTypes,bandTypes,activeSheetId,showExtra,layout,settings,uid,inputs:_readInputs()})); }catch(_){} }
 let _saveT=null; function scheduleSave(){ clearTimeout(_saveT); _saveT=setTimeout(saveState,400); }
@@ -80,6 +81,37 @@ function loadState(){ try{ const raw=localStorage.getItem(LS_KEY); if(!raw) retu
   if(typeof d.uid==='number') uid=Math.max(uid,d.uid);
   return d.inputs||{};
 }catch(_){ return null; } }
+
+/* ---------------- المقاسات المكررة ---------------- */
+function sizeKey(p){ const a=(p.origL!=null?p.origL:p.l), b=(p.origW!=null?p.origW:p.w); const mn=Math.min(a,b), mx=Math.max(a,b); return mn+'x'+mx; }
+function layoutSizeCounts(){ const m={}; (layout||[]).forEach(sh=>sh.pieces.forEach(p=>{ const k=sizeKey(p); m[k]=(m[k]||0)+1; })); return m; }
+
+/* ---------------- تجميع الألواح المتطابقة ---------------- */
+function sheetFingerprint(sh){
+  return sh.pieces.map(p=>[Math.round(p.x*10),Math.round(p.y*10),Math.round(p.l*10),Math.round(p.w*10),(p.rot?1:0),(p.bandId||''),(p.edges?(''+(!!p.edges.t)+(!!p.edges.b)+(!!p.edges.l)+(!!p.edges.r)):'')].join(','))
+    .sort().join('|');
+}
+function groupSheets(){
+  const groups=[]; const map={};
+  (layout||[]).forEach((sh,idx)=>{
+    const fp=sheetFingerprint(sh);
+    if(map[fp]!=null){ const g=groups[map[fp]]; g.count++; g.idxs.push(idx); }
+    else { map[fp]=groups.length; groups.push({sheet:sh, idx:idx, count:1, idxs:[idx], fp:fp}); }
+  });
+  return groups;
+}
+
+/* ---------------- وصف اتجاه القص ---------------- */
+function cutDirLabel(d){ return d==='length'?'طولي ‖':(d==='cross'?'عرضي ═':'حر ✲'); }
+
+/* شعار التطبيق كـ Data URL */
+async function logoDataUrl(){
+  if(window._logoDU!==undefined) return window._logoDU;
+  try{ const r=await fetch('logo.jpeg'); const bl=await r.blob();
+    window._logoDU=await new Promise(res=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=()=>res(null); fr.readAsDataURL(bl); });
+  }catch(_){ window._logoDU=null; }
+  return window._logoDU;
+}
 
 /* ---------------- جداول الإدخال ---------------- */
 function renderBandTable(){
@@ -95,11 +127,9 @@ function renderBandTable(){
   tb.querySelectorAll('input').forEach(inp=>inp.addEventListener('input',e=>{
     const b=bandTypes.find(x=>x.id===e.target.dataset.id); const f=e.target.dataset.f;
     b[f] = f==='price' ? (parseFloat(e.target.value)||0) : e.target.value;
-    scheduleSave();
   }));
   tb.querySelectorAll('[data-del]').forEach(btn=>btn.addEventListener('click',e=>{
     bandTypes=bandTypes.filter(x=>x.id!==e.target.dataset.del); renderBandTable(); renderPieceTable();
-    scheduleSave();
   }));
 }
 
@@ -121,16 +151,14 @@ function renderSheetTable(){
   tb.querySelectorAll('input[data-f]').forEach(inp=>inp.addEventListener('input',e=>{
     const s=sheetTypes.find(x=>x.id===e.target.dataset.id); const f=e.target.dataset.f;
     s[f]=['l','w','qty','price'].includes(f)?(e.target.value===''?null:parseFloat(e.target.value)):e.target.value;
-    scheduleSave();
   }));
-  tb.querySelectorAll('[data-active]').forEach(r=>r.addEventListener('change',e=>{ activeSheetId=e.target.dataset.active; scheduleSave(); }));
+  tb.querySelectorAll('[data-active]').forEach(r=>r.addEventListener('change',e=>{ activeSheetId=e.target.dataset.active; }));
   tb.querySelectorAll('[data-del]').forEach(btn=>btn.addEventListener('click',e=>{
     if(sheetTypes.length<=1){ toast('يجب إبقاء نوع لوح واحد على الأقل'); return; }
     const id=e.target.dataset.del;
     sheetTypes=sheetTypes.filter(x=>x.id!==id);
     if(activeSheetId===id) activeSheetId=sheetTypes[0].id;
     renderSheetTable();
-    scheduleSave();
   }));
 }
 
@@ -174,14 +202,12 @@ function renderPieceTable(){
   tb.querySelectorAll('input,select').forEach(inp=>inp.addEventListener('input',e=>{
     const p=pieces.find(x=>x.id===e.target.dataset.id); const f=e.target.dataset.f;
     p[f]=['l','w','qty'].includes(f)?(e.target.value===''?null:parseFloat(e.target.value)):e.target.value;
-    scheduleSave();
   }));
   tb.querySelectorAll('.edge-btn').forEach(btn=>{
     btn.addEventListener('pointerdown',e=>{
       e.preventDefault();
       const p=pieces.find(x=>x.id===btn.dataset.id); const k=btn.dataset.e;
       if(!p) return; p.edges[k]=!p.edges[k]; btn.classList.toggle('on',p.edges[k]);
-      scheduleSave();
     });
   });
   tb.querySelectorAll('[data-del]').forEach(btn=>{
@@ -190,7 +216,6 @@ function renderPieceTable(){
       const delId=e.currentTarget.dataset.del;
       const idx=pieces.findIndex(x=>x.id===delId);
       pieces=pieces.filter(x=>x.id!==delId); renderPieceTable();
-      scheduleSave();
       if(pieces.length){
         const ni=Math.min(idx, pieces.length-1);
         const inp=document.querySelector(`#pieceTable tbody input[data-id="${pieces[ni].id}"][data-f="l"]`);
@@ -204,7 +229,7 @@ function renderPieceTable(){
 function optimize(){
   const at=sheetTypes.find(s=>s.id===activeSheetId)||sheetTypes[0];
   const L=+at.l, W=+at.w, qty=+at.qty||0;
-  const kerf=+$('#kerf').value||0, cutDir=$('#cutDir').value, allowRotate=false;
+  const kerf=+$('#kerf').value||0, cutDir=$('#cutDir').value, allowRotate=false; // التدوير ملغى نهائياً
   const cutFee=+$('#cutFee').value||0, planName=$('#planName').value.trim();
   if(!(L>0&&W>0)){ toast('أدخل أبعاد لوح صحيحة في جدول الأنواع'); return; }
   settings={L,W,qty,kerf,cutDir,allowRotate,colorize:false,sheetPrice:+at.price||0,sheetName:(at.name||'لوح'),cutFee,planName};
@@ -218,13 +243,14 @@ function optimize(){
   const fits=(fr,pl,pw)=> pl<=fr.w+1e-6 && pw<=fr.h+1e-6;
 
   function tryPlace(s,it){
-    let best=null,score=Infinity;
+    let best=null,score=Infinity,rot=false;
     for(const fr of s.free){
-      if(fits(fr,it._l,it._w)){ const sc=Math.min(fr.w-it._l,fr.h-it._w); if(sc<score){score=sc;best=fr;} }
+      if(fits(fr,it._l,it._w)){ const sc=Math.min(fr.w-it._l,fr.h-it._w); if(sc<score){score=sc;best=fr;rot=false;} }
+      if(allowRotate && fits(fr,it._w,it._l)){ const sc=Math.min(fr.w-it._w,fr.h-it._l); if(sc<score){score=sc;best=fr;rot=true;} }
     }
     if(!best) return false;
-    const pl=it._l, pw=it._w;
-    s.placed.push({ x:best.x, y:best.y, l:pl, w:pw, rot:false, src:it, origL:it._l, origW:it._w });
+    const pl=rot?it._w:it._l, pw=rot?it._l:it._w;
+    s.placed.push({ x:best.x, y:best.y, l:pl, w:pw, rot, src:it, origL:it._l, origW:it._w });
     const rightW=best.w-pl-kerf, bottomH=best.h-pw-kerf;
     if(rightW>0.05) s.cuts++; if(bottomH>0.05) s.cuts++;
     s.free=s.free.filter(f=>f!==best);
@@ -236,8 +262,13 @@ function optimize(){
       r1={x:best.x, y:best.y+pw+kerf, w:best.w, h:bottomH};
       r2={x:best.x+pl+kerf, y:best.y, w:rightW, h:pw};
     } else {
-      r1={x:best.x+pl+kerf, y:best.y, w:rightW, h:best.h};
-      r2={x:best.x, y:best.y+pw+kerf, w:pl, h:bottomH};
+      const aR1={x:best.x+pl+kerf, y:best.y, w:rightW, h:best.h};
+      const aR2={x:best.x, y:best.y+pw+kerf, w:pl, h:bottomH};
+      const bR1={x:best.x, y:best.y+pw+kerf, w:best.w, h:bottomH};
+      const bR2={x:best.x+pl+kerf, y:best.y, w:rightW, h:pw};
+      const maxA=Math.max(aR1.w*aR1.h, aR2.w*aR2.h);
+      const maxB=Math.max(bR1.w*bR1.h, bR2.w*bR2.h);
+      if(maxA>=maxB){ r1=aR1; r2=aR2; } else { r1=bR1; r2=bR2; }
     }
     if(r1.w>0.05&&r1.h>0.05) s.free.push(r1);
     if(r2.w>0.05&&r2.h>0.05) s.free.push(r2);
@@ -278,18 +309,48 @@ function pieceBanding(p){
   if(p.edges.l) cm+=p.origW; if(p.edges.r) cm+=p.origW;
   const m=cm/100; return { m, cost:m*bandById(p.bandId).price };
 }
+function recomputeCuts(sheet){
+  const xs=new Set(), ys=new Set();
+  sheet.pieces.forEach(p=>{
+    const x1=Math.round(p.x*10)/10, x2=Math.round((p.x+p.l)*10)/10;
+    const y1=Math.round(p.y*10)/10, y2=Math.round((p.y+p.w)*10)/10;
+    if(x1>0.1) xs.add(x1); if(x2<settings.L-0.1) xs.add(x2);
+    if(y1>0.1) ys.add(y1); if(y2<settings.W-0.1) ys.add(y2);
+  });
+  return xs.size + ys.size;
+}
+function sheetStats(sheet){
+  const area=settings.L*settings.W;
+  let used=0,m=0,cost=0;
+  sheet.pieces.forEach(p=>{ used+=p.l*p.w; const b=pieceBanding(p); m+=b.m; cost+=b.cost; });
+  return { used, area, util:used/area*100, waste:(1-used/area)*100, meters:m, cost, count:sheet.pieces.length, cuts:recomputeCuts(sheet) };
+}
+function sheetCutLength(sheet){
+  const xs=new Set(), ys=new Set();
+  sheet.pieces.forEach(p=>{
+    const x2=Math.round((p.x+p.l)*10)/10, y2=Math.round((p.y+p.w)*10)/10;
+    if(x2<settings.L-0.1) xs.add(x2);
+    if(y2<settings.W-0.1) ys.add(y2);
+  });
+  return xs.size*settings.W + ys.size*settings.L;
+}
+function totals(){
+  let used=0,m=0,cost=0,cuts=0,count=0,cutLen=0; const byType={};
+  layout.forEach(sh=>sh.pieces.forEach(p=>{
+    used+=p.l*p.w; const b=pieceBanding(p); m+=b.m; cost+=b.cost;
+    const t=bandById(p.bandId).name; byType[t]=byType[t]||{m:0,cost:0}; byType[t].m+=b.m; byType[t].cost+=b.cost;
+  }));
+  layout.forEach(sh=>{cuts+=recomputeCuts(sh);count+=sh.pieces.length;cutLen+=sheetCutLength(sh);});
+  const area=layout.length*settings.L*settings.W;
+  return { sheets:layout.length, area, used, util:area?used/area*100:0, waste:area?(1-used/area)*100:0,
+           meters:m, cost, cuts, count, cutLen, byType };
+}
 
 /* ---------------- رسم النتائج ---------------- */
 const fmtNum=n=>Number.isInteger(n)?n:Math.round(n*10)/10;
 const SHEET_TINTS=[['#efeaf6','#e4daee'],['#f6eaee','#f0dbe3'],['#f4f1e1','#eae3c9'],
                    ['#e7f0ea','#d8ebdf'],['#e7eef1','#d8e7ec'],['#f1ece5','#e8e0d4']];
 function sheetTint(i){ return SHEET_TINTS[i%SHEET_TINTS.length]; }
-
-function displayEdges(p){
-  const e=p.edges;
-  if(!p.rot) return {t:e.t,b:e.b,l:e.l,r:e.r};
-  return { t:e.l, b:e.r, l:e.b, r:e.t };
-}
 
 function recomputeWaste(sheet){
   const L=settings.L, W=settings.W;
@@ -321,7 +382,7 @@ function recomputeWaste(sheet){
 
 function buildSheetCanvas(sheet, idx, colorMap, interactive, count){
   count=count||1;
-  const st = { count: sheet.pieces.length, cuts: sheet.cuts || 0, util: 100, waste: 0, meters: 0 };
+  const st=sheetStats(sheet);
   const block=document.createElement('div'); block.className='sheet-block';
   block.innerHTML=`
     <div class="sheet-head">
@@ -378,6 +439,12 @@ function positionPieces(canvas, scale){
     canvas.appendChild(el);
   });
   markOverlaps(canvas);
+}
+
+function displayEdges(p){
+  const e=p.edges;
+  if(!p.rot) return {t:e.t,b:e.b,l:e.l,r:e.r};
+  return { t:e.l, b:e.r, l:e.b, r:e.t };
 }
 
 function markOverlaps(canvas){
@@ -600,7 +667,7 @@ function refreshLive(){
   window.scrollTo(0,scrollY);
 }
 
-/* ---------------- رسم المخطط على Canvas حقيقي (للـ PDF) ---------------- */
+/* ---------------- رسم المخطط على Canvas حقيقي ---------------- */
 function _haloText(ctx,text,x,y,color,halo){
   ctx.save();
   ctx.lineJoin='round';
@@ -622,7 +689,7 @@ function _band(ctx,x,y,w,h){
   ctx.restore();
 }
 function drawSheetToCanvasEl(sheet, idx, s){
-  const MR=44, MB=40;
+  const MR=44, MB=40;   // هوامش أكبر لمنع التداخل
   const cv=document.createElement('canvas');
   const Wpx=Math.max(1,Math.round(settings.L*s)), Hpx=Math.max(1,Math.round(settings.W*s));
   const dpr=2;
@@ -632,6 +699,8 @@ function drawSheetToCanvasEl(sheet, idx, s){
   ctx.scale(dpr,dpr);
   ctx.direction='ltr';
   ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,Wpx+MR,Hpx+MB);
+  // تم إزالة الإطار الخارجي حول اللوح
+  // ctx.lineWidth=2; ctx.strokeStyle='#8a5e26'; ctx.strokeRect(1,1,Wpx-2,Hpx-2); 
   ctx.textAlign='center'; ctx.textBaseline='middle';
   recomputeWaste(sheet).forEach(w=>{
     const x=w.x*s,y=w.y*s,ww=w.w*s,hh=w.h*s;
@@ -671,14 +740,14 @@ function drawSheetToCanvasEl(sheet, idx, s){
   ctx.save();
   ctx.strokeStyle='#a8706f'; ctx.fillStyle='#a8706f'; ctx.lineWidth=1.2;
   ctx.textAlign='center'; ctx.textBaseline='middle';
-  const by=Hpx+22;
+  const by=Hpx+22;   // مسافة أكبر للمسطرة السفلية
   ctx.beginPath(); ctx.moveTo(0,by); ctx.lineTo(Wpx,by); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(0,by-4); ctx.lineTo(0,by+4); ctx.moveTo(Wpx,by-4); ctx.lineTo(Wpx,by+4); ctx.stroke();
   ctx.font='600 16px Cairo, Arial, sans-serif';
   const lt=fmtNum(settings.L)+''; const ltw=ctx.measureText(lt).width;
   ctx.fillStyle='#ffffff'; ctx.fillRect(Wpx/2-ltw/2-5, by-10, ltw+10, 20);
   ctx.fillStyle='#a8706f'; ctx.fillText(lt, Wpx/2, by);
-  const rx=Wpx+22;
+  const rx=Wpx+22;   // مسافة أكبر للمسطرة الجانبية
   ctx.beginPath(); ctx.moveTo(rx,0); ctx.lineTo(rx,Hpx); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(rx-4,0); ctx.lineTo(rx+4,0); ctx.moveTo(rx-4,Hpx); ctx.lineTo(rx+4,Hpx); ctx.stroke();
   ctx.save(); ctx.translate(rx, Hpx/2); ctx.rotate(-Math.PI/2);
@@ -920,188 +989,61 @@ function openPdfModal(url, fname){
 function row(l,v){ return `<tr><td style="padding:6px;border-bottom:1px solid #eee;color:#64748b">${l}</td><td style="padding:6px;border-bottom:1px solid #eee;font-weight:700">${v}</td></tr>`; }
 function rrow(l,v){ return `<tr><td>${l}</td><td class="rpt-val">${v}</td></tr>`; }
 
-/* ========== Firebase Auth (إجباري) ========== */
-let currentUser = null;
-
-function showAuthModal() {
-  const modal = document.getElementById('authModal');
-  if (!modal) return;
-  modal.classList.remove('hidden');
-}
-function hideAuthModal() {
-  const modal = document.getElementById('authModal');
-  if (modal) modal.classList.add('hidden');
-}
-
-document.getElementById('authModal')?.addEventListener('click', function(e) {
-  if (e.target === this) e.stopPropagation();
-});
-
-let activeTab = 'login';
-function setActiveTab(tab) {
-  activeTab = tab;
-  document.querySelectorAll('.auth-tab').forEach(btn => btn.classList.remove('active'));
-  const target = document.querySelector(`.auth-tab[data-tab="${tab}"]`);
-  if (target) target.classList.add('active');
-  const actionBtn = document.getElementById('authActionBtn');
-  if (actionBtn) actionBtn.textContent = tab === 'login' ? 'دخول' : 'إنشاء حساب';
-  const errEl = document.getElementById('authError');
-  if (errEl) errEl.style.display = 'none';
-}
-document.querySelectorAll('.auth-tab').forEach(btn => {
-  btn.addEventListener('click', () => setActiveTab(btn.dataset.tab));
-});
-
-async function handleAuthAction() {
-  const email = document.getElementById('authEmail')?.value.trim() || '';
-  const password = document.getElementById('authPassword')?.value || '';
-  const errEl = document.getElementById('authError');
-
-  if (!email || !password) {
-    if (errEl) { errEl.textContent = 'الرجاء إدخال البريد وكلمة المرور'; errEl.style.display = 'block'; }
-    return;
-  }
-  if (!email.includes('@') || !email.includes('.')) {
-    if (errEl) { errEl.textContent = 'صيغة البريد غير صحيحة'; errEl.style.display = 'block'; }
-    return;
-  }
-
-  if (activeTab === 'login') {
-    try {
-      await window.signInWithEmailAndPassword(window.auth, email, password);
-      toast('✓ تم تسجيل الدخول');
-    } catch (e) {
-      if (errEl) { errEl.textContent = 'خطأ: ' + e.message; errEl.style.display = 'block'; }
-    }
-  } else {
-    try {
-      const cred = await window.createUserWithEmailAndPassword(window.auth, email, password);
-      await window.setDoc(window.doc(window.db, 'users', cred.user.uid), {
-        email: email, plan: 'free', createdAt: new Date()
-      });
-      toast('✓ تم إنشاء الحساب بنجاح');
-    } catch (e) {
-      if (errEl) {
-        errEl.textContent = e.code === 'auth/email-already-in-use' 
-          ? 'البريد الإلكتروني مسجل مسبقاً. استخدم تسجيل الدخول.' 
-          : 'خطأ: ' + e.message;
-        errEl.style.display = 'block';
-      }
-    }
-  }
-}
-document.getElementById('authActionBtn')?.addEventListener('click', handleAuthAction);
-
-$('#btnLogin')?.addEventListener('click', showAuthModal);
-$('#btnLogout')?.addEventListener('click', async () => {
-  await window.signOut(window.auth);
-  toast('✓ تم تسجيل الخروج');
-});
-
-window.onAuthStateChanged(window.auth, (user) => {
-  currentUser = user;
-  if (user) {
-    hideAuthModal();
-    if ($('#btnLogin')) $('#btnLogin').style.display = 'none';
-    if ($('#btnLogout')) $('#btnLogout').style.display = '';
-  } else {
-    showAuthModal();
-    if ($('#btnLogin')) $('#btnLogin').style.display = 'none';
-    if ($('#btnLogout')) $('#btnLogout').style.display = 'none';
-  }
-});
-
-/* ========== حفظ محلي (ملف JSON كامل) ========== */
-function saveProjectLocally() {
-  if (!layout) { toast('قم بالتحسين أولاً'); return; }
-  const data = {
-    version: 2,
-    exportedAt: new Date().toISOString(),
-    planName: settings?.planName || '',
-    pieces,
-    sheetTypes,
-    bandTypes,
-    activeSheetId,
-    layout,
-    settings
-  };
-  const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = (settings?.planName || 'مشروع') + '.iqpanel.json';
-  a.click();
-  URL.revokeObjectURL(url);
-  toast('✓ تم تنزيل المشروع محلياً');
-}
-
-/* ========== مشروع جديد ========== */
 function resetProject(){
   if(!confirm('بدء مشروع جديد سيحذف كل البيانات الحالية (الاسم، الأنواع، القطع، الإعدادات والمخطط). هل تريد المتابعة؟')) return;
   try{ localStorage.removeItem(LS_KEY); }catch(_){}
-  pieces = [];
-  sheetTypes = [ { id:'s1', name:'لوح', l:null, w:null, qty:null, price:null } ];
-  bandTypes = [
-    { id: 'b1', name: 'PVC 0.4 مم', price: 0.30 },
-    { id: 'b2', name: 'PVC 2 مم',   price: 0.80 },
-    { id: 'b0', name: 'بدون تلبيس', price: 0.00 },
-  ];
-  activeSheetId = 's1';
-  layout = null;
-  settings = null;
-  showExtra = false;
-  applyExtraToggleUI();
+  pieces=Array.from({length:10},()=>emptyPiece());
+  sheetTypes=[{id:'s1',name:'لوح',l:null,w:null,qty:null,price:null}];
+  activeSheetId='s1';
+  layout=null; settings=null;
   const pn=$('#planName'); if(pn) pn.value='';
   const kf=$('#kerf'); if(kf) kf.value='';
   const cf=$('#cutFee'); if(cf) cf.value='';
   const cd=$('#cutDir'); if(cd) cd.value='length';
-  renderSheetTable();
-  renderBandTable();
-  renderPieceTable();
-  renderResults();
+  showExtra=false; applyExtraToggleUI();
+  renderSheetTable(); renderPieceTable(); renderResults();
   window.scrollTo(0,0);
   toast('✓ تم بدء مشروع جديد');
 }
 
-/* ========== ربط جميع الأزرار ========== */
-$('#addBand').addEventListener('click', ()=>{
-  bandTypes.push({id:nid(), name:'نوع جديد', price:0.5});
-  renderBandTable(); renderPieceTable(); scheduleSave();
+/* ---------------- ربط الأحداث ---------------- */
+$('#addBand').addEventListener('click',()=>{ bandTypes.push({id:nid(),name:'نوع جديد',price:0.5}); renderBandTable(); renderPieceTable(); });
+$('#addPiece').addEventListener('mousedown',e=>e.preventDefault());
+$('#addPiece').addEventListener('click',()=>{
+  const id=nid();
+  pieces.push({id,name:'',l:null,w:null,qty:null,bandId:bandTypes[0]?.id,edges:{t:false,b:false,l:false,r:false}});
+  renderPieceTable();
+  const inp=document.querySelector(`#pieceTable tbody input[data-id="${id}"][data-f="l"]`);
+  if(inp) inp.focus();
 });
-$('#addSheet').addEventListener('click', ()=>{
-  sheetTypes.push({id:nid(), name:'لوح', l:null, w:null, qty:null, price:null});
-  renderSheetTable(); scheduleSave();
-});
-$('#addPiece').addEventListener('click', ()=>{
-  const id = nid();
-  pieces.push({id, name:'', l:null, w:null, qty:null, bandId:bandTypes[0]?.id, edges:{t:false,b:false,l:false,r:false}});
-  renderPieceTable(); scheduleSave();
-});
-$('#addPiece10')?.addEventListener('click', ()=>{
-  for(let i=0;i<10;i++){
-    const id = nid();
-    pieces.push({id, name:'', l:null, w:null, qty:null, bandId:bandTypes[0]?.id, edges:{t:false,b:false,l:false,r:false}});
-  }
-  renderPieceTable(); toast('✓ تمت إضافة ١٠ صفوف'); scheduleSave();
-});
-const btnExtra = $('#toggleExtra');
-if (btnExtra) {
-  btnExtra.addEventListener('click', () => {
-    showExtra = !showExtra;
+const btnAdd10=$('#addPiece10');
+if(btnAdd10){
+  btnAdd10.addEventListener('mousedown',e=>e.preventDefault());
+  btnAdd10.addEventListener('click',()=>{
+    let firstId=null;
+    for(let i=0;i<10;i++){ const id=nid(); if(!firstId) firstId=id;
+      pieces.push({id,name:'',l:null,w:null,qty:null,bandId:bandTypes[0]?.id,edges:{t:false,b:false,l:false,r:false}}); }
+    renderPieceTable();
+    const inp=document.querySelector(`#pieceTable tbody input[data-id="${firstId}"][data-f="l"]`);
+    if(inp) inp.focus();
+    toast('✓ تمت إضافة ١٠ صفوف');
+  });
+}
+const btnExtra=$('#toggleExtra');
+if(btnExtra){
+  btnExtra.addEventListener('click',()=>{
+    showExtra=!showExtra;
     applyExtraToggleUI();
     renderPieceTable();
-    scheduleSave();
   });
 }
 applyExtraToggleUI();
 
-$('#btnNew').addEventListener('click', resetProject);
-$('#btnOptimize').addEventListener('click', optimize);
-$('#btnPdf').addEventListener('click', openPdfOptions);
-$('#btnSaveLocal').addEventListener('click', saveProjectLocally);
-
-$('#pdfOptCancel')?.addEventListener('click', ()=> $('#pdfOptModal').classList.add('hidden'));
-$('#pdfOptGo')?.addEventListener('click', ()=>{
+$('#btnNew').addEventListener('click',resetProject);
+$('#btnOptimize').addEventListener('click',optimize);
+$('#btnPdf').addEventListener('click',openPdfOptions);
+const _pc=$('#pdfOptCancel'); if(_pc) _pc.addEventListener('click',()=>$('#pdfOptModal').classList.add('hidden'));
+const _pg=$('#pdfOptGo'); if(_pg) _pg.addEventListener('click',()=>{
   const opts={ name:($('#pdfName')&&$('#pdfName').value.trim())||'',
     summary:$('#optSummary').checked, sheetData:$('#optSheetData').checked,
     cutOrder:$('#optCutOrder').checked, banding:$('#optBanding').checked, costs:$('#optCosts').checked };
@@ -1110,75 +1052,52 @@ $('#pdfOptGo')?.addEventListener('click', ()=>{
   $('#pdfOptModal').classList.add('hidden');
   doExportPDF(opts);
 });
+$('#pdfClose').addEventListener('click',()=>{ $('#pdfModal').classList.add('hidden'); $('#pdfFrame').src='about:blank'; });
+$('#pdfPrint').addEventListener('click',()=>{ const f=$('#pdfFrame'); try{ f.contentWindow.focus(); f.contentWindow.print(); }catch(e){ toast('استخدم زر التنزيل بدل الطباعة'); } });
+$('#addSheet').addEventListener('click',()=>{ sheetTypes.push({id:nid(),name:'لوح',l:null,w:null,qty:null,price:null}); renderSheetTable(); });
+$('#cutDir').addEventListener('change',()=>{ if(layout) optimize(); });
 
-/* ========== تحميل البيانات عند بدء التشغيل ========== */
-function initApp() {
-  const saved = loadState();
-  if (saved) {
-    const setV = (id, v) => { const el = $('#'+id); if (el && v != null && v !== '') el.value = v; };
-    setV('planName', saved.planName);
-    setV('kerf', saved.kerf);
-    setV('cutFee', saved.cutFee);
-    if (saved.cutDir) { const cd = $('#cutDir'); if (cd) cd.value = saved.cutDir; }
-  }
-  applyExtraToggleUI();
-  renderSheetTable();
-  renderBandTable();
-  renderPieceTable();
-  if (layout && layout.length) renderResults();
+const emptyPiece=()=>({id:nid(),name:'',l:null,w:null,qty:null,bandId:bandTypes[0]?.id,edges:{t:false,b:false,l:false,r:false}});
+const _saved=loadState();
+if(!pieces.length){ for(let i=0;i<10;i++) pieces.push(emptyPiece()); }
+if(_saved){
+  const setV=(id,v)=>{ const el=$('#'+id); if(el!=null&&v!=null&&v!=='') el.value=v; };
+  setV('planName',_saved.planName); setV('kerf',_saved.kerf); setV('cutFee',_saved.cutFee);
+  if(_saved.cutDir){ const cd=$('#cutDir'); if(cd) cd.value=_saved.cutDir; }
 }
+applyExtraToggleUI();
 
-document.addEventListener('DOMContentLoaded', initApp);
-setTimeout(initApp, 10);
+renderSheetTable();
+renderBandTable();
+renderPieceTable();
+if(layout&&layout.length) renderResults();
 
-['planName','kerf','cutFee','cutDir'].forEach(id => {
-  const el = $('#'+id);
-  if (el) el.addEventListener('input', scheduleSave);
-  if (el) el.addEventListener('change', scheduleSave);
-});
+document.addEventListener('input', scheduleSave);
+document.addEventListener('change', scheduleSave);
 
-function cutDirLabel(d){ return d==='length'?'طولي ‖':(d==='cross'?'عرضي ═':'حر ✲'); }
-async function logoDataUrl(){
-  if(window._logoDU!==undefined) return window._logoDU;
-  try{ const r=await fetch('logo.jpeg'); const bl=await r.blob();
-    window._logoDU=await new Promise(res=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=()=>res(null); fr.readAsDataURL(bl); });
-  }catch(_){ window._logoDU=null; }
-  return window._logoDU;
-}
-function sizeKey(p){ const a=(p.origL!=null?p.origL:p.l), b=(p.origW!=null?p.origW:p.w); const mn=Math.min(a,b), mx=Math.max(a,b); return mn+'x'+mx; }
-function sheetStats(sheet){
-  const area=settings.L*settings.W;
-  let used=0,m=0,cost=0;
-  sheet.pieces.forEach(p=>{ used+=p.l*p.w; const b=pieceBanding(p); m+=b.m; cost+=b.cost; });
-  return { used, area, util:used/area*100, waste:(1-used/area)*100, meters:m, cost, count:sheet.pieces.length, cuts:recomputeCuts(sheet) };
-}
-function recomputeCuts(sheet){
-  const xs=new Set(), ys=new Set();
-  sheet.pieces.forEach(p=>{
-    const x1=Math.round(p.x*10)/10, x2=Math.round((p.x+p.l)*10)/10;
-    const y1=Math.round(p.y*10)/10, y2=Math.round((p.y+p.w)*10)/10;
-    if(x1>0.1) xs.add(x1); if(x2<settings.L-0.1) xs.add(x2);
-    if(y1>0.1) ys.add(y1); if(y2<settings.W-0.1) ys.add(y2);
+// زر الحفظ المحلي
+const btnSaveLocal = $('#btnSaveLocal');
+if (btnSaveLocal) {
+  btnSaveLocal.addEventListener('click', () => {
+    if (!layout) { toast('قم بالتحسين أولاً'); return; }
+    const data = {
+      version: 2,
+      exportedAt: new Date().toISOString(),
+      planName: settings?.planName || '',
+      pieces,
+      sheetTypes,
+      bandTypes,
+      activeSheetId,
+      layout,
+      settings
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (settings?.planName || 'مشروع') + '.iqpanel.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('✓ تم تنزيل المشروع محلياً');
   });
-  return xs.size + ys.size;
-}
-function sheetCutLength(sheet){
-  const xs=new Set(), ys=new Set();
-  sheet.pieces.forEach(p=>{
-    const x2=Math.round((p.x+p.l)*10)/10, y2=Math.round((p.y+p.w)*10)/10;
-    if(x2<settings.L-0.1) xs.add(x2);
-    if(y2<settings.W-0.1) ys.add(y2);
-  });
-  return xs.size*settings.W + ys.size*settings.L;
-}
-function totals(){
-  let used=0,m=0,cost=0,cuts=0,count=0,cutLen=0; const byType={};
-  layout.forEach(sh=>sh.pieces.forEach(p=>{
-    used+=p.l*p.w; const b=pieceBanding(p); m+=b.m; cost+=b.cost;
-    const t=bandById(p.bandId).name; byType[t]=byType[t]||{m:0,cost:0}; byType[t].m+=b.m; byType[t].cost+=b.cost;
-  }));
-  layout.forEach(sh=>{cuts+=recomputeCuts(sh);count+=sh.pieces.length;cutLen+=sheetCutLength(sh);});
-  const area=layout.length*settings.L*settings.W;
-  return { sheets:layout.length, area, used, util:area?used/area*100:0, waste:area?(1-used/area)*100:0,
-           meters:m, cost, cuts, count, cutLen, byType };
 }
