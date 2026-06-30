@@ -1,5 +1,5 @@
 /* Qpanell Service Worker — يخزّن التطبيق ليعمل دون إنترنت */
-const CACHE = 'qpanell-v7';
+const CACHE = 'qpanell-v1';
 const ASSETS = [
   './', './index.html', './styles.css', './app.js',
   './logo.jpeg', './icon-192.png', './icon-512.png',

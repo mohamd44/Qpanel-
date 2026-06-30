@@ -62,7 +62,9 @@
             <option value="free">حر (يختار التطبيق الأفضل تلقائياً)</option>
           </select>
         </label>
-        <!-- تم حذف خيار السماح بتدوير القطعة -->
+        <div class="toggles">
+          <label class="chk"><input type="checkbox" id="allowRotate"> السماح بتدوير القطعة (تجاهل اتجاه التعريق)</label>
+        </div>
       </section>
 
       <!-- أنواع حرف التلبيس -->
@@ -95,7 +97,7 @@
           <button class="btn btn-sm" id="addPiece">+ إضافة قطعة</button>
           <button class="btn btn-sm" id="addPiece10">+ إضافة ١٠ صفوف</button>
         </div>
-        <p class="hint">أدخل <b>الطول × العرض × العدد</b> فقط لإدخال سريع. زر <b>⚙ خيارات إضافية</b> بالأعلى يُفعّل إظهار الاسم ونوع الحرف ومكان التلبيس لكل القطع.</p>
+        <p class="hint">أدخل <b>الطول × العرض × العدد</b> فقط لإدخال سريع. زر <b>⚙ خيارات إضافية</b> بالأعلى يُفعّل (لمرة واحدة) إظهار الاسم ونوع الحرف ومكان التلبيس لكل القطع، ويُلغى تلقائياً عند بدء مشروع جديد.</p>
       </section>
     </aside>
 
@@ -108,7 +110,7 @@
       </div>
       <div id="sheetsArea" class="sheets-area"></div>
       <p id="dragHint" class="hint hidden">💡 <b>اضغط مع الاستمرار</b> على أي قطعة حتى ترتفع ثم اسحبها. عند الإفلات <b>تلتصق مغناطيسياً</b> بحافة أقرب قطعة تاركةً فاصل سُمك المنشار فقط — على خط قص مستقيم. يمكن نقلها بين الألواح وتتحدّث الإحصائيات تلقائياً.</p>
-      <!-- شريط الإجراءات السفلي -->
+      <!-- شريط الإجراءات السفلي: توليد المخطط وحفظ المشروع — سهل وسريع الوصول بعد آخر مخطط -->
       <div id="resultsActions" class="results-actions">
         <span class="band-legend"><i class="band-swatch"></i> حرف التلبيس (التقشيط)</span>
         <div class="results-actions-btns">
@@ -119,19 +121,14 @@
     </section>
   </main>
 
-  <!-- باقي النوافذ (بدون تغيير) -->
+  <!-- حاوية تقرير الـ PDF (مخفية) -->
   <div id="pdfReport" class="pdf-report"></div>
+
   <div id="toast" class="toast hidden"></div>
-  <div id="progressOverlay" class="progress-overlay hidden">
-    <div class="progress-box">
-      <div class="progress-ring"></div>
-      <div class="progress-pct" id="progressPct">0%</div>
-      <div class="progress-label" id="progressLabel">جارٍ إنشاء ملف PDF…</div>
-    </div>
-  </div>
+
   <button id="btnInstall" class="install-fab hidden">⬇️ تثبيت التطبيق على الهاتف</button>
 
-  <!-- نافذة خيارات PDF -->
+  <!-- نافذة خيارات الحفظ قبل إنشاء PDF -->
   <div id="pdfOptModal" class="pdf-modal hidden">
     <div class="pdf-modal-box pdf-opt-box">
       <div class="pdf-modal-head">
@@ -144,7 +141,7 @@
         </label>
         <div class="pdf-opt-h">البيانات المُضمّنة في التقرير</div>
         <label class="chk"><input type="checkbox" id="optSummary" checked> صفحة الملخص الشامل للمشروع</label>
-        <label class="chk"><input type="checkbox" id="optSheetData" checked> بيانات كل لوح (قطع • قصّات • استفادة • هدر • تلبيس)</label>
+        <label class="chk"><input type="checkbox" id="optSheetData" checked> بيانات كل لوح (قطع · قصّات · استفادة · هدر · تلبيس)</label>
         <label class="chk"><input type="checkbox" id="optCutOrder" checked> ترتيب عمليات القص لكل لوح</label>
         <label class="chk"><input type="checkbox" id="optBanding" checked> تفصيل التلبيس حسب النوع</label>
         <label class="chk"><input type="checkbox" id="optCosts" checked> التكاليف والأسعار</label>
@@ -156,7 +153,7 @@
     </div>
   </div>
 
-  <!-- نافذة عرض/حفظ PDF -->
+  <!-- نافذة عرض/حفظ ملف PDF (تتجاوز قيود التنزيل داخل الإطار) -->
   <div id="pdfModal" class="pdf-modal hidden">
     <div class="pdf-modal-box">
       <div class="pdf-modal-head">
@@ -175,11 +172,13 @@
 
   <script src="app.js"></script>
   <script>
+    // تسجيل Service Worker (للعمل دون إنترنت بعد الاستضافة)
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('sw.js').catch(() => {});
       });
     }
+    // زر التثبيت (يظهر تلقائياً على المتصفحات الداعمة)
     let deferredPrompt = null;
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault(); deferredPrompt = e;
